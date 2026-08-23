@@ -49,43 +49,18 @@ def generate_metro_dataset():
         ("RL15", "Motera Stadium")
     ]
 
-    # Trains configuration
-    trains_config = {
-        # Blue Line UP
-        "BL-UP-01": {"line": "Blue", "direction": "UP", "route": blue_stations, "offset": 0},
-        "BL-UP-02": {"line": "Blue", "direction": "UP", "route": blue_stations, "offset": 3},
-        "BL-UP-03": {"line": "Blue", "direction": "UP", "route": blue_stations, "offset": 6},
-        "BL-UP-04": {"line": "Blue", "direction": "UP", "route": blue_stations, "offset": 9},
-        "BL-UP-05": {"line": "Blue", "direction": "UP", "route": blue_stations, "offset": 12},
-        "BL-UP-06": {"line": "Blue", "direction": "UP", "route": blue_stations, "offset": 15},
-        
-        # Blue Line DOWN
-        "BL-DO-01": {"line": "Blue", "direction": "DOWN", "route": list(reversed(blue_stations)), "offset": 1},
-        "BL-DO-02": {"line": "Blue", "direction": "DOWN", "route": list(reversed(blue_stations)), "offset": 4},
-        "BL-DO-03": {"line": "Blue", "direction": "DOWN", "route": list(reversed(blue_stations)), "offset": 7},
-        "BL-DO-04": {"line": "Blue", "direction": "DOWN", "route": list(reversed(blue_stations)), "offset": 10},
-        "BL-DO-05": {"line": "Blue", "direction": "DOWN", "route": list(reversed(blue_stations)), "offset": 13},
-        
-        # Red Line UP
-        "RL-UP-01": {"line": "Red", "direction": "UP", "route": red_stations, "offset": 0},
-        "RL-UP-02": {"line": "Red", "direction": "UP", "route": red_stations, "offset": 3},
-        "RL-UP-03": {"line": "Red", "direction": "UP", "route": red_stations, "offset": 6},
-        "RL-UP-04": {"line": "Red", "direction": "UP", "route": red_stations, "offset": 9},
-        "RL-UP-05": {"line": "Red", "direction": "UP", "route": red_stations, "offset": 12},
-        
-        # Red Line DOWN
-        "RL-DO-01": {"line": "Red", "direction": "DOWN", "route": list(reversed(red_stations)), "offset": 1},
-        "RL-DO-02": {"line": "Red", "direction": "DOWN", "route": list(reversed(red_stations)), "offset": 4},
-        "RL-DO-03": {"line": "Red", "direction": "DOWN", "route": list(reversed(red_stations)), "offset": 7},
-        "RL-DO-04": {"line": "Red", "direction": "DOWN", "route": list(reversed(red_stations)), "offset": 10},
-        "RL-DO-05": {"line": "Red", "direction": "DOWN", "route": list(reversed(red_stations)), "offset": 13},
-    }
+    # Trains configuration — 24 circulating rakes
+    trains_config = {}
+    for i in range(12):
+        trains_config[f"BL-{i+1:02d}"] = {"line": "Blue", "route_up": blue_stations, "route_down": list(reversed(blue_stations)), "offset": i * 3}
+    for i in range(12):
+        trains_config[f"RL-{i+1:02d}"] = {"line": "Red", "route_up": red_stations, "route_down": list(reversed(red_stations)), "offset": int(i * 2.5)}
 
     dates = pd.date_range(start="2025-01-01 00:00:00", end="2025-12-31 23:00:00", freq="h")
     train_ids = list(trains_config.keys())
     coaches = ["C1", "C2", "C3"]
 
-    print("Generating base index combinations (551,880 rows)...")
+    print("Generating base index combinations (630,720 rows)...")
     index = pd.MultiIndex.from_product([dates, train_ids, coaches], names=["Timestamp", "Train_ID", "Coach_ID"])
     df = pd.DataFrame(index=index).reset_index()
 
@@ -97,46 +72,60 @@ def generate_metro_dataset():
 
     # Map static train configuration
     line_map = {t: trains_config[t]["line"] for t in train_ids}
-    dir_map = {t: trains_config[t]["direction"] for t in train_ids}
     offset_map = {t: trains_config[t]["offset"] for t in train_ids}
 
     df["Line"] = df["Train_ID"].map(line_map).astype("category")
-    df["Direction"] = df["Train_ID"].map(dir_map).astype("category")
     offsets = df["Train_ID"].map(offset_map).values
 
-    # Determine Station_ID, Station_Name, Next_Station vectorially
+    # Dynamic direction determination: continuous cycle alternates UP and DOWN
+    # Blue line: 18 stations (trip len 18), Red line: 15 stations (trip len 15)
     print("Mapping stations along route configurations...")
-    mask_blue_up = (df["Line"] == "Blue") & (df["Direction"] == "UP")
-    mask_blue_do = (df["Line"] == "Blue") & (df["Direction"] == "DOWN")
-    mask_red_up = (df["Line"] == "Red") & (df["Direction"] == "UP")
-    mask_red_do = (df["Line"] == "Red") & (df["Direction"] == "DOWN")
-
-    blue_up_route = blue_stations
-    blue_do_route = list(reversed(blue_stations))
-    red_up_route = red_stations
-    red_do_route = list(reversed(red_stations))
-
     station_ids = np.empty(len(df), dtype=object)
     station_names = np.empty(len(df), dtype=object)
     next_stations = np.empty(len(df), dtype=object)
+    directions = np.empty(len(df), dtype=object)
 
-    for mask, route in zip(
-        [mask_blue_up, mask_blue_do, mask_red_up, mask_red_do],
-        [blue_up_route, blue_do_route, red_up_route, red_do_route]
-    ):
+    for line_name, stations_up in [("Blue", blue_stations), ("Red", red_stations)]:
+        mask = (df["Line"] == line_name)
         idx_in_mask = df.index[mask]
         if len(idx_in_mask) == 0:
             continue
         
+        n_stn = len(stations_up)
         h_since = hours_since_start[mask]
         offs = offsets[mask]
+        total_cycle = 2 * n_stn
         
-        station_idx = (h_since + offs) % len(route)
-        next_idx = (station_idx + 1) % len(route)
+        pos_in_cycle = (h_since + offs) % total_cycle
+        is_up_trip = pos_in_cycle < n_stn
         
-        station_ids[idx_in_mask] = [route[i][0] for i in station_idx]
-        station_names[idx_in_mask] = [route[i][1] for i in station_idx]
-        next_stations[idx_in_mask] = [route[i][1] for i in next_idx]
+        stations_down = list(reversed(stations_up))
+        
+        for i_local, is_up_val in enumerate(is_up_trip):
+            real_idx = idx_in_mask[i_local]
+            p = pos_in_cycle[i_local]
+            if is_up_val:
+                directions[real_idx] = "UP"
+                st_idx = p
+                station_ids[real_idx] = stations_up[st_idx][0]
+                station_names[real_idx] = stations_up[st_idx][1]
+                if st_idx < n_stn - 1:
+                    next_stations[real_idx] = stations_up[st_idx + 1][1]
+                else:
+                    # At the terminal UP end, the next stop upon turnaround is the first stop on the DOWN journey
+                    next_stations[real_idx] = stations_down[1][1]
+            else:
+                directions[real_idx] = "DOWN"
+                st_idx = p - n_stn
+                station_ids[real_idx] = stations_down[st_idx][0]
+                station_names[real_idx] = stations_down[st_idx][1]
+                if st_idx < n_stn - 1:
+                    next_stations[real_idx] = stations_down[st_idx + 1][1]
+                else:
+                    # At the terminal DOWN end, the next stop upon turnaround is the first stop on the UP journey
+                    next_stations[real_idx] = stations_up[1][1]
+
+    df["Direction"] = pd.Categorical(directions, categories=["UP", "DOWN"])
 
     df["Station_ID"] = station_ids
     df["Station_ID"] = df["Station_ID"].astype("category")
@@ -145,18 +134,34 @@ def generate_metro_dataset():
     df["Next_Station"] = next_stations
     df["Next_Station"] = df["Next_Station"].astype("category")
 
-    # Event State cycle: BOARDING, ALIGHTING, IN_TRANSIT
+    # Platform Number Mapping
+    # Standard: UP -> 1, DOWN -> 2
+    # Old High Court (BL11 / RL07): BL UP -> 1, BL DOWN -> 2, RL UP -> 3, RL DOWN -> 4
+    is_ohc = (df["Station_ID"] == "BL11") | (df["Station_ID"] == "RL07")
+    is_up = (df["Direction"] == "UP")
+    is_bl = (df["Line"] == "Blue")
+    platform_nums = np.where(
+        is_ohc,
+        np.where(is_bl, np.where(is_up, 1, 2), np.where(is_up, 3, 4)),
+        np.where(is_up, 1, 2)
+    ).astype(np.int8)
+    df["Platform_Number"] = platform_nums
+
+    # Event State cycle: BOARDING, ALIGHTING, IN_TRANSIT, NOT_IN_SERVICE
     print("Generating event states...")
+    is_night_closed = (hours < 6)
     event_idx = (hours_since_start + offsets) % 3
     event_states_list = ["BOARDING", "ALIGHTING", "IN_TRANSIT"]
-    df["Event_State"] = np.array(event_states_list)[event_idx]
-    df["Event_State"] = df["Event_State"].astype("category")
+    event_states_arr = np.array(event_states_list, dtype=object)[event_idx]
+    event_states_arr[is_night_closed] = "NOT_IN_SERVICE"
+    df["Event_State"] = pd.Categorical(event_states_arr, categories=["BOARDING", "ALIGHTING", "IN_TRANSIT", "NOT_IN_SERVICE"])
 
-    # ETA minutes
+    # ETA minutes (0 for night closed or dwelling)
     eta = np.zeros(len(df), dtype=np.int8)
     is_transit = (df["Event_State"] == "IN_TRANSIT").values
     eta[is_transit] = np.random.randint(1, 3, size=np.sum(is_transit))
-    eta[~is_transit] = np.random.randint(2, 5, size=np.sum(~is_transit))
+    eta[~is_transit & ~is_night_closed] = np.random.randint(2, 5, size=np.sum(~is_transit & ~is_night_closed))
+    eta[is_night_closed] = 0
     df["ETA_Minutes"] = eta
 
     # Coach configurations
@@ -216,7 +221,9 @@ def generate_metro_dataset():
     base_delay = np.clip(base_delay, 0, 10)
     rainy_addon = np.where(df["Weather"] == "Rainy", np.random.randint(10, 30, size=len(df)), 0)
     festival_addon = np.where(is_festival, np.random.randint(5, 15, size=len(df)), 0)
-    df["Delay_Minutes"] = (base_delay + rainy_addon + festival_addon).astype(np.int16)
+    delays = (base_delay + rainy_addon + festival_addon).astype(np.int16)
+    delays[is_night_closed] = 0
+    df["Delay_Minutes"] = delays
 
     # Peak hour & Weekend Base occupancy logic
     print("Generating realistic passengers occupancy profiles...")
@@ -232,12 +239,15 @@ def generate_metro_dataset():
     # Evening Peak (17:00 - 21:00)
     hour_min_pct[17:22] = 0.75
     hour_max_pct[17:22] = 0.98
-    # Late Night (22:00 - 05:00)
-    hour_min_pct[[22, 23, 0, 1, 2, 3, 4, 5]] = 0.05
-    hour_max_pct[[22, 23, 0, 1, 2, 3, 4, 5]] = 0.25
-    # Transition hour 6
-    hour_min_pct[6] = 0.20
-    hour_max_pct[6] = 0.40
+    # Late Evening (22:00 - 23:00)
+    hour_min_pct[[22, 23]] = 0.05
+    hour_max_pct[[22, 23]] = 0.15
+    # Closed Night Hours (00:00 - 05:00) - No revenue service
+    hour_min_pct[[0, 1, 2, 3, 4, 5]] = 0.0
+    hour_max_pct[[0, 1, 2, 3, 4, 5]] = 0.0
+    # Early Morning Transition (06:00)
+    hour_min_pct[6] = 0.15
+    hour_max_pct[6] = 0.35
 
     base_min = hour_min_pct[hours]
     base_max = hour_max_pct[hours]
@@ -254,10 +264,10 @@ def generate_metro_dataset():
     final_min = weekend_min * festival_mult
     final_max = weekend_max * festival_mult
 
-    final_min = np.clip(final_min, 0.02, 0.95)
-    final_max = np.clip(final_max, 0.05, 1.00)
+    final_min = np.where(is_night_closed, 0.0, np.clip(final_min, 0.02, 0.95))
+    final_max = np.where(is_night_closed, 0.0, np.clip(final_max, 0.05, 1.00))
 
-    train_occ_base = np.random.uniform(final_min, final_max)
+    train_occ_base = np.where(is_night_closed, 0.0, np.random.uniform(final_min, final_max))
 
     # Coach specific multipliers (Ladies vs General)
     coach_mult = np.ones(len(df))
@@ -267,12 +277,14 @@ def generate_metro_dataset():
 
     passengers = np.round(train_occ_base * 400 * coach_mult).astype(int)
     passengers = np.clip(passengers, 0, 400)
+    passengers[is_night_closed] = 0
     df["Passengers"] = passengers.astype(np.int16)
 
-    # Anomalies (1% target)
+    # Anomalies (1% target) - only during operating hours (hours >= 6)
     print("Injecting operational anomalies...")
     df["Anomaly_Flag"] = np.int8(0)
-    anomaly_indices = np.random.choice(df.index, size=int(len(df) * 0.01), replace=False)
+    operating_indices = df.index[~is_night_closed]
+    anomaly_indices = np.random.choice(operating_indices, size=int(len(df) * 0.01), replace=False)
     df.loc[anomaly_indices, "Anomaly_Flag"] = np.int8(1)
 
     num_anomalies = len(anomaly_indices)
@@ -289,7 +301,7 @@ def generate_metro_dataset():
         np.random.randint(410, 460, size=len(idx_surge))
     ).astype(np.int16)
 
-    # Anomaly 2: Unexpected overcrowding at night
+    # Anomaly 2: Unexpected overcrowding late evening
     df.loc[idx_overcrowd, "Passengers"] = np.random.randint(300, 390, size=len(idx_overcrowd)).astype(np.int16)
 
     # Anomaly 3: High delay spike + platform congestion
@@ -319,7 +331,7 @@ def generate_metro_dataset():
 
     # Reorder columns as requested
     required_cols = [
-        "Timestamp", "Train_ID", "Line", "Direction", "Station_ID", "Station_Name",
+        "Timestamp", "Train_ID", "Line", "Direction", "Platform_Number", "Station_ID", "Station_Name",
         "Coach_ID", "Coach_Type", "Passengers", "Coach_Capacity", "Coach_Occupancy_Percentage",
         "Train_Total_Passengers", "Train_Total_Capacity", "Train_Occupancy_Percentage",
         "Crowd_Level", "Weather", "Temperature", "Day_Type", "Festival", "Delay_Minutes",
@@ -327,10 +339,15 @@ def generate_metro_dataset():
     ]
     df = df[required_cols]
 
-    # Save to CSV
-    csv_filename = "metro.csv"
-    print(f"Saving new dataset to {csv_filename}...")
+    # Save to CSV in passenger_estimation/data/ and passenger_estimation/
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    data_dir = os.path.join(base_dir, "data")
+    os.makedirs(data_dir, exist_ok=True)
+    csv_filename = os.path.join(data_dir, "metro.csv")
+    csv_fallback = os.path.join(base_dir, "metro.csv")
+    print(f"Saving new dataset to {csv_filename} and {csv_fallback}...")
     df.to_csv(csv_filename, index=False)
+    df.to_csv(csv_fallback, index=False)
     print(f"Dataset successfully saved.\n")
 
     # Output stats

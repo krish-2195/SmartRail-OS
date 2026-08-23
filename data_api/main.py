@@ -8,7 +8,10 @@ from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from datetime import datetime
 from typing import Optional
-from metro_engine import engine
+try:
+    from data_api.metro_engine_shared import engine
+except ImportError:
+    from metro_engine_shared import engine
 
 app = FastAPI(
     title="🚇 MetroPulse — Ahmedabad Metro API",
