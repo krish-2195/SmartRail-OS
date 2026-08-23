@@ -4,7 +4,8 @@ import json
 import logging
 from datetime import datetime
 
-from app.db.session import engine, Base, async_session_maker
+from app.db.session import engine, SessionLocal as async_session_maker
+from app.models.base import Base
 from app.repositories.base import AlertRepository
 from app.schemas.ingestion import SensorEvent, CoachData
 from app.services.engine.alert_engine import AlertEngine

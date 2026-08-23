@@ -6,7 +6,7 @@ import argparse
 from datetime import datetime
 import os
 
-API_URL = "http://localhost:8000/api/v1/ingestion/events"
+API_URL = os.getenv("API_URL", "http://127.0.0.1:8000/api/v1/ingestion/events")
 
 def stream_csv(csv_path: str, interval: float, max_events: int = 0):
     if not os.path.exists(csv_path):

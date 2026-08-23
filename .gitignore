@@ -33,6 +33,7 @@ htmlcov/
 # --- Build artifacts ---
 build/
 dist/
+zips_for_claude/
 *.egg-info/
 .eggs/
 
@@ -40,6 +41,9 @@ dist/
 *.log
 *.pid
 *.db
+*.db-shm
+*.db-wal
+*.db-journal
 *.sqlite3
 
 # --- IDE/editor ---
@@ -79,6 +83,4 @@ smartrailos_app/.packages
 AGENTS.md
 CLAUDE.md
 GEMINI.md
-QODER.md
-*.csv
 passenger_estimation/model.pkl

@@ -1,6 +1,7 @@
 # 🚀 SmartRail OS — Complete Master Startup Guide
 
 This guide gives you the exact terminal commands and configurations to launch and test the entire SmartRail OS ecosystem:
+
 1. **FastAPI Backend & Database Engine** (Port 8000)
 2. **Machine Learning Model Training & Estimation Pipeline** (RandomForest Regressor)
 3. **ESP32 IoT Sensor & Hardware Break-Beam Emulator** (Real-time passenger flow)
@@ -37,6 +38,7 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 SmartRail OS includes a **RandomForest Regressor** trained on historical Ahmedabad Metro telemetry, Gujarat 2026 public holidays, and Open-Meteo live weather data.
 
 ### Option A: Retrain the ML Model & Update Serialized Artifacts
+
 ```bash
 cd passenger_estimation
 
@@ -48,6 +50,7 @@ python3 estimation.py
 ```
 
 ### Option B: Test Live Passenger Crowd Predictions
+
 ```bash
 # 1. Get real-time crowd forecast for a station (e.g. Old High Court BL11):
 curl http://localhost:8000/api/v1/stations/BL11/feature
@@ -63,7 +66,19 @@ curl http://localhost:8000/api/v1/analytics/hourly-flow
 
 ## 📡 3. ESP32 IoT Sensor & Hardware Break-Beam Emulator (Terminal 2)
 
-Simulates optical IR break-beam passenger entry/exit sensors at turnstiles and coach doors.
+###
+
+```bash
+cd esp32-test
+
+# Upload logic to ESP32 board
+pio run -e esp32dev -t upload
+
+# Start counting at BL08 station
+python3 serial_bridge.py --station BL08 --reset
+```
+
+### Simulates optical IR break-beam passenger entry/exit sensors at turnstiles and coach doors
 
 ```bash
 # 1. Simulate passenger boarding & alighting flow at Old High Court (BL11):
@@ -73,7 +88,8 @@ python3 scripts/sensor_simulator.py --station BL11 --occupancy 220 --boarding 35
 python3 scripts/sensor_simulator.py --station BL11 --rush-hour
 ```
 
-### Direct ESP32 Ingestion REST API:
+### Direct ESP32 Ingestion REST API
+
 ```bash
 # Inspect live ESP32 hardware state:
 curl http://localhost:8000/api/v1/esp32/live

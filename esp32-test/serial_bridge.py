@@ -120,6 +120,7 @@ def main():
     parser.add_argument("--station", default=None, help="Target station ID (e.g. BL08)")
     parser.add_argument("--coach", default="C1", help="Coach identifier (default C1)")
     parser.add_argument("--capacity", type=int, default=400, help="Coach capacity (default 400)")
+    parser.add_argument("--reset", action="store_true", help="Reset ESP32 counters (occupancy, IN, OUT) to 0 on connect")
     args = parser.parse_args()
 
     if args.port is None:
@@ -137,6 +138,8 @@ def main():
     print(f"  Backend : {args.backend}")
     print(f"  Station : {station_label}")
     print(f"  Coach   : {args.coach} (Capacity: {args.capacity} pax)")
+    if args.reset:
+        print("  Reset   : YES (Zeroing counters on connect)")
     print("=" * 62)
     print()
 
@@ -151,6 +154,20 @@ def main():
                 continue
             ser = serial.Serial(args.port, args.baud, timeout=1)
             print(f"✔ Connected to {args.port}")
+
+            if args.reset:
+                time.sleep(0.2)
+                # Send reset command over serial
+                ser.write(b"RESET\n")
+                ser.flush()
+                # Pulse DTR to hard-reset microcontroller if needed
+                ser.dtr = False
+                ser.rts = False
+                time.sleep(0.05)
+                ser.dtr = True
+                ser.rts = True
+                print("  [INFO] Sent hardware/software reset to ESP32.")
+
             print("  Listening for directional passenger crossings…\n")
 
             while True:
@@ -167,6 +184,9 @@ def main():
                     try:
                         pkt = json.loads(line)
                         event = pkt.get("event", "SYNC")
+                        if event == "RESET_ACK":
+                            print("  [ESP32] Counters successfully reset to 0.")
+                            event = "SYNC"
                         in_d = pkt.get("in_delta", 0)
                         out_d = pkt.get("out_delta", 0)
                         occ = pkt.get("occupancy", 0)

@@ -10,6 +10,8 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as WallRouteImport } from './routes/wall'
+import { Route as RegisterRouteImport } from './routes/register'
+import { Route as LoginRouteImport } from './routes/login'
 import { Route as DashboardRouteImport } from './routes/dashboard'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as DashboardIndexRouteImport } from './routes/dashboard.index'
@@ -17,6 +19,7 @@ import { Route as DashboardSettingsRouteImport } from './routes/dashboard.settin
 import { Route as DashboardPredictionsRouteImport } from './routes/dashboard.predictions'
 import { Route as DashboardLiveTrainsRouteImport } from './routes/dashboard.live-trains'
 import { Route as DashboardIncomingRouteImport } from './routes/dashboard.incoming'
+import { Route as DashboardEspSensorRouteImport } from './routes/dashboard.esp-sensor'
 import { Route as DashboardDigitalTwinRouteImport } from './routes/dashboard.digital-twin'
 import { Route as DashboardCrowdRouteImport } from './routes/dashboard.crowd'
 import { Route as DashboardAnnouncementsRouteImport } from './routes/dashboard.announcements'
@@ -29,6 +32,16 @@ import { Route as ApiPublicEmergencyStatusRouteImport } from './routes/api/publi
 const WallRoute = WallRouteImport.update({
   id: '/wall',
   path: '/wall',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const RegisterRoute = RegisterRouteImport.update({
+  id: '/register',
+  path: '/register',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const LoginRoute = LoginRouteImport.update({
+  id: '/login',
+  path: '/login',
   getParentRoute: () => rootRouteImport,
 } as any)
 const DashboardRoute = DashboardRouteImport.update({
@@ -64,6 +77,11 @@ const DashboardLiveTrainsRoute = DashboardLiveTrainsRouteImport.update({
 const DashboardIncomingRoute = DashboardIncomingRouteImport.update({
   id: '/incoming',
   path: '/incoming',
+  getParentRoute: () => DashboardRoute,
+} as any)
+const DashboardEspSensorRoute = DashboardEspSensorRouteImport.update({
+  id: '/esp-sensor',
+  path: '/esp-sensor',
   getParentRoute: () => DashboardRoute,
 } as any)
 const DashboardDigitalTwinRoute = DashboardDigitalTwinRouteImport.update({
@@ -112,12 +130,15 @@ const ApiPublicEmergencyStatusRoute =
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/dashboard': typeof DashboardRouteWithChildren
+  '/login': typeof LoginRoute
+  '/register': typeof RegisterRoute
   '/wall': typeof WallRoute
   '/dashboard/alerts': typeof DashboardAlertsRoute
   '/dashboard/analytics': typeof DashboardAnalyticsRoute
   '/dashboard/announcements': typeof DashboardAnnouncementsRoute
   '/dashboard/crowd': typeof DashboardCrowdRoute
   '/dashboard/digital-twin': typeof DashboardDigitalTwinRoute
+  '/dashboard/esp-sensor': typeof DashboardEspSensorRoute
   '/dashboard/incoming': typeof DashboardIncomingRoute
   '/dashboard/live-trains': typeof DashboardLiveTrainsRoute
   '/dashboard/predictions': typeof DashboardPredictionsRoute
@@ -129,12 +150,15 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/login': typeof LoginRoute
+  '/register': typeof RegisterRoute
   '/wall': typeof WallRoute
   '/dashboard/alerts': typeof DashboardAlertsRoute
   '/dashboard/analytics': typeof DashboardAnalyticsRoute
   '/dashboard/announcements': typeof DashboardAnnouncementsRoute
   '/dashboard/crowd': typeof DashboardCrowdRoute
   '/dashboard/digital-twin': typeof DashboardDigitalTwinRoute
+  '/dashboard/esp-sensor': typeof DashboardEspSensorRoute
   '/dashboard/incoming': typeof DashboardIncomingRoute
   '/dashboard/live-trains': typeof DashboardLiveTrainsRoute
   '/dashboard/predictions': typeof DashboardPredictionsRoute
@@ -148,12 +172,15 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/dashboard': typeof DashboardRouteWithChildren
+  '/login': typeof LoginRoute
+  '/register': typeof RegisterRoute
   '/wall': typeof WallRoute
   '/dashboard/alerts': typeof DashboardAlertsRoute
   '/dashboard/analytics': typeof DashboardAnalyticsRoute
   '/dashboard/announcements': typeof DashboardAnnouncementsRoute
   '/dashboard/crowd': typeof DashboardCrowdRoute
   '/dashboard/digital-twin': typeof DashboardDigitalTwinRoute
+  '/dashboard/esp-sensor': typeof DashboardEspSensorRoute
   '/dashboard/incoming': typeof DashboardIncomingRoute
   '/dashboard/live-trains': typeof DashboardLiveTrainsRoute
   '/dashboard/predictions': typeof DashboardPredictionsRoute
@@ -168,12 +195,15 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/dashboard'
+    | '/login'
+    | '/register'
     | '/wall'
     | '/dashboard/alerts'
     | '/dashboard/analytics'
     | '/dashboard/announcements'
     | '/dashboard/crowd'
     | '/dashboard/digital-twin'
+    | '/dashboard/esp-sensor'
     | '/dashboard/incoming'
     | '/dashboard/live-trains'
     | '/dashboard/predictions'
@@ -185,12 +215,15 @@ export interface FileRouteTypes {
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
+    | '/login'
+    | '/register'
     | '/wall'
     | '/dashboard/alerts'
     | '/dashboard/analytics'
     | '/dashboard/announcements'
     | '/dashboard/crowd'
     | '/dashboard/digital-twin'
+    | '/dashboard/esp-sensor'
     | '/dashboard/incoming'
     | '/dashboard/live-trains'
     | '/dashboard/predictions'
@@ -203,12 +236,15 @@ export interface FileRouteTypes {
     | '__root__'
     | '/'
     | '/dashboard'
+    | '/login'
+    | '/register'
     | '/wall'
     | '/dashboard/alerts'
     | '/dashboard/analytics'
     | '/dashboard/announcements'
     | '/dashboard/crowd'
     | '/dashboard/digital-twin'
+    | '/dashboard/esp-sensor'
     | '/dashboard/incoming'
     | '/dashboard/live-trains'
     | '/dashboard/predictions'
@@ -222,6 +258,8 @@ export interface FileRouteTypes {
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   DashboardRoute: typeof DashboardRouteWithChildren
+  LoginRoute: typeof LoginRoute
+  RegisterRoute: typeof RegisterRoute
   WallRoute: typeof WallRoute
   ApiPublicEmergencyStatusRoute: typeof ApiPublicEmergencyStatusRoute
 }
@@ -233,6 +271,20 @@ declare module '@tanstack/react-router' {
       path: '/wall'
       fullPath: '/wall'
       preLoaderRoute: typeof WallRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/register': {
+      id: '/register'
+      path: '/register'
+      fullPath: '/register'
+      preLoaderRoute: typeof RegisterRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/login': {
+      id: '/login'
+      path: '/login'
+      fullPath: '/login'
+      preLoaderRoute: typeof LoginRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/dashboard': {
@@ -282,6 +334,13 @@ declare module '@tanstack/react-router' {
       path: '/incoming'
       fullPath: '/dashboard/incoming'
       preLoaderRoute: typeof DashboardIncomingRouteImport
+      parentRoute: typeof DashboardRoute
+    }
+    '/dashboard/esp-sensor': {
+      id: '/dashboard/esp-sensor'
+      path: '/esp-sensor'
+      fullPath: '/dashboard/esp-sensor'
+      preLoaderRoute: typeof DashboardEspSensorRouteImport
       parentRoute: typeof DashboardRoute
     }
     '/dashboard/digital-twin': {
@@ -349,6 +408,7 @@ interface DashboardRouteChildren {
   DashboardAnnouncementsRoute: typeof DashboardAnnouncementsRoute
   DashboardCrowdRoute: typeof DashboardCrowdRoute
   DashboardDigitalTwinRoute: typeof DashboardDigitalTwinRoute
+  DashboardEspSensorRoute: typeof DashboardEspSensorRoute
   DashboardIncomingRoute: typeof DashboardIncomingRoute
   DashboardLiveTrainsRoute: typeof DashboardLiveTrainsRoute
   DashboardPredictionsRoute: typeof DashboardPredictionsRoute
@@ -364,6 +424,7 @@ const DashboardRouteChildren: DashboardRouteChildren = {
   DashboardAnnouncementsRoute: DashboardAnnouncementsRoute,
   DashboardCrowdRoute: DashboardCrowdRoute,
   DashboardDigitalTwinRoute: DashboardDigitalTwinRoute,
+  DashboardEspSensorRoute: DashboardEspSensorRoute,
   DashboardIncomingRoute: DashboardIncomingRoute,
   DashboardLiveTrainsRoute: DashboardLiveTrainsRoute,
   DashboardPredictionsRoute: DashboardPredictionsRoute,
@@ -380,6 +441,8 @@ const DashboardRouteWithChildren = DashboardRoute._addFileChildren(
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   DashboardRoute: DashboardRouteWithChildren,
+  LoginRoute: LoginRoute,
+  RegisterRoute: RegisterRoute,
   WallRoute: WallRoute,
   ApiPublicEmergencyStatusRoute: ApiPublicEmergencyStatusRoute,
 }

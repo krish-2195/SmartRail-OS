@@ -1,3 +1,33 @@
-from app.api.v1.endpoints import alerts, auth, dashboard, stations, trains, analytics
+﻿from app.api.v1.endpoints import (
+    alerts,
+    analytics,
+    announcements,
+    auth,
+    catalog,
+    dashboard,
+    ingestion,
+    occupancy,
+    predictions,
+    sim_time,
+    stations,
+    trains,
+    users,
+    ws,
+)
 
-__all__ = ["alerts", "auth", "dashboard", "stations", "trains", "analytics"]
+__all__ = [
+    "alerts",
+    "analytics",
+    "announcements",
+    "auth",
+    "catalog",
+    "dashboard",
+    "ingestion",
+    "occupancy",
+    "predictions",
+    "sim_time",
+    "stations",
+    "trains",
+    "users",
+    "ws",
+]
