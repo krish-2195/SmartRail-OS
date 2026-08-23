@@ -10,15 +10,15 @@ class AuthNotifier extends AsyncNotifier<UserModel?> {
     return ref.read(apiServiceProvider).checkAuth();
   }
 
-  Future<void> login(String email, String password) async {
+  Future<void> login(String identifier, String password) async {
     state = const AsyncLoading();
-    state = await AsyncValue.guard(() => ref.read(apiServiceProvider).login(email, password));
+    state = await AsyncValue.guard(() => ref.read(apiServiceProvider).login(identifier, password));
     if (state is AsyncError) throw (state as AsyncError).error;
   }
 
-  Future<void> register(String name, String email, String password) async {
+  Future<void> register(String name, String email, String password, {String? userIdCode}) async {
     state = const AsyncLoading();
-    state = await AsyncValue.guard(() => ref.read(apiServiceProvider).register(name, email, password));
+    state = await AsyncValue.guard(() => ref.read(apiServiceProvider).register(name, email, password, userIdCode: userIdCode));
     if (state is AsyncError) throw (state as AsyncError).error;
   }
 

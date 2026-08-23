@@ -21,49 +21,59 @@ class Station {
     required this.lineId,
     required this.sequenceIndex,
   });
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is Station &&
+          runtimeType == other.runtimeType &&
+          id == other.id &&
+          lineId == other.lineId;
+
+  @override
+  int get hashCode => id.hashCode ^ lineId.hashCode;
+
+  @override
+  String toString() => '$id - $name';
 }
 
 const List<Station> blueLineStations = [
-  Station(id: 'VG', name: 'Vastral Gam', lineId: MetroLine.blue, sequenceIndex: 0),
-  Station(id: 'AP', name: 'Apparel Park', lineId: MetroLine.blue, sequenceIndex: 1),
-  Station(id: 'AW', name: 'Amraiwadi', lineId: MetroLine.blue, sequenceIndex: 2),
-  Station(id: 'RC', name: 'Rabari Colony', lineId: MetroLine.blue, sequenceIndex: 3),
-  Station(id: 'RH', name: 'Rajpur Hirpur', lineId: MetroLine.blue, sequenceIndex: 4),
-  Station(id: 'OD', name: 'Odhav', lineId: MetroLine.blue, sequenceIndex: 5),
-  Station(id: 'NC', name: 'Nirant Cross Road', lineId: MetroLine.blue, sequenceIndex: 6),
-  Station(id: 'GY', name: 'Gyaspur', lineId: MetroLine.blue, sequenceIndex: 7),
-  Station(id: 'SB', name: 'Saijpur Bogha', lineId: MetroLine.blue, sequenceIndex: 8),
-  Station(id: 'SJ', name: 'Saijpur', lineId: MetroLine.blue, sequenceIndex: 9),
-  Station(id: 'BN', name: 'Bapu Nagar', lineId: MetroLine.blue, sequenceIndex: 10),
-  Station(id: 'KE', name: 'Kankaria East', lineId: MetroLine.blue, sequenceIndex: 11),
-  Station(id: 'KW', name: 'Kankaria West', lineId: MetroLine.blue, sequenceIndex: 12),
-  Station(id: 'MN', name: 'Maninagar', lineId: MetroLine.blue, sequenceIndex: 13),
-  Station(id: 'SH', name: 'Shahpur', lineId: MetroLine.blue, sequenceIndex: 14),
-  Station(id: 'KC', name: 'Kalupur (Central)', lineId: MetroLine.blue, sequenceIndex: 15),
-  Station(id: 'GK', name: 'Gheekanta', lineId: MetroLine.blue, sequenceIndex: 16),
-  Station(id: 'OHC', name: 'Old High Court', lineId: MetroLine.blue, sequenceIndex: 17),
-  Station(id: 'PL', name: 'Paldi', lineId: MetroLine.blue, sequenceIndex: 18),
-  Station(id: 'SY', name: 'Shreyas', lineId: MetroLine.blue, sequenceIndex: 19),
-  Station(id: 'JP', name: 'Jivraj Park', lineId: MetroLine.blue, sequenceIndex: 20),
-  Station(id: 'RN', name: 'Rajivnagar', lineId: MetroLine.blue, sequenceIndex: 21),
-  Station(id: 'JN', name: 'Jivrajnagar', lineId: MetroLine.blue, sequenceIndex: 22),
-  Station(id: 'VS', name: 'Vasna', lineId: MetroLine.blue, sequenceIndex: 23),
-  Station(id: 'TG', name: 'Thaltej', lineId: MetroLine.blue, sequenceIndex: 24),
+  Station(id: 'BL01', name: 'Vastral Gam', lineId: MetroLine.blue, sequenceIndex: 0),
+  Station(id: 'BL02', name: 'Nirant Cross Road', lineId: MetroLine.blue, sequenceIndex: 1),
+  Station(id: 'BL03', name: 'Vastral', lineId: MetroLine.blue, sequenceIndex: 2),
+  Station(id: 'BL04', name: 'Rabari Colony', lineId: MetroLine.blue, sequenceIndex: 3),
+  Station(id: 'BL05', name: 'Amraiwadi', lineId: MetroLine.blue, sequenceIndex: 4),
+  Station(id: 'BL06', name: 'Apparel Park', lineId: MetroLine.blue, sequenceIndex: 5),
+  Station(id: 'BL07', name: 'Kankaria East', lineId: MetroLine.blue, sequenceIndex: 6),
+  Station(id: 'BL08', name: 'Kalupur Metro Station', lineId: MetroLine.blue, sequenceIndex: 7),
+  Station(id: 'BL09', name: 'Ghee Kanta', lineId: MetroLine.blue, sequenceIndex: 8),
+  Station(id: 'BL10', name: 'Shahpur', lineId: MetroLine.blue, sequenceIndex: 9),
+  Station(id: 'BL11', name: 'Old High Court', lineId: MetroLine.blue, sequenceIndex: 10),
+  Station(id: 'BL12', name: 'SP Stadium', lineId: MetroLine.blue, sequenceIndex: 11),
+  Station(id: 'BL13', name: 'Commerce Six Road', lineId: MetroLine.blue, sequenceIndex: 12),
+  Station(id: 'BL14', name: 'Gujarat University', lineId: MetroLine.blue, sequenceIndex: 13),
+  Station(id: 'BL15', name: 'Gurukul Road', lineId: MetroLine.blue, sequenceIndex: 14),
+  Station(id: 'BL16', name: 'Doordarshan Kendra', lineId: MetroLine.blue, sequenceIndex: 15),
+  Station(id: 'BL17', name: 'Thaltej', lineId: MetroLine.blue, sequenceIndex: 16),
+  Station(id: 'BL18', name: 'Thaltej Gam', lineId: MetroLine.blue, sequenceIndex: 17),
 ];
 
 const List<Station> redLineStations = [
-  Station(id: 'MS', name: 'Motera Stadium', lineId: MetroLine.red, sequenceIndex: 0),
-  Station(id: 'SM', name: 'Sabarmati', lineId: MetroLine.red, sequenceIndex: 1),
-  Station(id: 'RP', name: 'Ranip', lineId: MetroLine.red, sequenceIndex: 2),
-  Station(id: 'CD', name: 'Chandlodia', lineId: MetroLine.red, sequenceIndex: 3),
-  Station(id: 'VJ', name: 'Vadaj', lineId: MetroLine.red, sequenceIndex: 4),
-  Station(id: 'VT', name: 'Visat', lineId: MetroLine.red, sequenceIndex: 5),
-  Station(id: 'CK', name: 'Chandkheda', lineId: MetroLine.red, sequenceIndex: 6),
-  Station(id: 'SRS', name: 'Sabarmati Railway Station', lineId: MetroLine.red, sequenceIndex: 7),
-  Station(id: 'SC', name: 'Science City', lineId: MetroLine.red, sequenceIndex: 8),
-  Station(id: 'OHC', name: 'Old High Court', lineId: MetroLine.red, sequenceIndex: 9),
-  Station(id: 'BP', name: 'Bhopal', lineId: MetroLine.red, sequenceIndex: 10),
-  Station(id: 'GN', name: 'GNLU', lineId: MetroLine.red, sequenceIndex: 11),
+  Station(id: 'RL01', name: 'APMC', lineId: MetroLine.red, sequenceIndex: 0),
+  Station(id: 'RL02', name: 'Jivraj Park', lineId: MetroLine.red, sequenceIndex: 1),
+  Station(id: 'RL03', name: 'Rajiv Nagar', lineId: MetroLine.red, sequenceIndex: 2),
+  Station(id: 'RL04', name: 'Shreyas', lineId: MetroLine.red, sequenceIndex: 3),
+  Station(id: 'RL05', name: 'Paldi', lineId: MetroLine.red, sequenceIndex: 4),
+  Station(id: 'RL06', name: 'Gandhigram', lineId: MetroLine.red, sequenceIndex: 5),
+  Station(id: 'RL07', name: 'Old High Court', lineId: MetroLine.red, sequenceIndex: 6),
+  Station(id: 'RL08', name: 'Usmanpura', lineId: MetroLine.red, sequenceIndex: 7),
+  Station(id: 'RL09', name: 'Vijay Nagar', lineId: MetroLine.red, sequenceIndex: 8),
+  Station(id: 'RL10', name: 'Vadaj', lineId: MetroLine.red, sequenceIndex: 9),
+  Station(id: 'RL11', name: 'Ranip', lineId: MetroLine.red, sequenceIndex: 10),
+  Station(id: 'RL12', name: 'Sabarmati Railway Station', lineId: MetroLine.red, sequenceIndex: 11),
+  Station(id: 'RL13', name: 'AEC', lineId: MetroLine.red, sequenceIndex: 12),
+  Station(id: 'RL14', name: 'Sabarmati', lineId: MetroLine.red, sequenceIndex: 13),
+  Station(id: 'RL15', name: 'Motera Stadium', lineId: MetroLine.red, sequenceIndex: 14),
 ];
 
 List<Station> getStationsForLine(MetroLine line) {

@@ -51,7 +51,7 @@ class TrainPositionDiagram extends StatelessWidget {
                 child: Container(
                   height: 4,
                   decoration: BoxDecoration(
-                    color: Colors.white.withOpacity(0.1),
+                    color: Colors.white.withValues(alpha: 0.1),
                     borderRadius: BorderRadius.circular(2),
                   ),
                 ),
@@ -68,7 +68,7 @@ class TrainPositionDiagram extends StatelessWidget {
                     color: lineColor,
                     borderRadius: BorderRadius.circular(2),
                     boxShadow: [
-                      BoxShadow(color: lineColor.withOpacity(0.3), blurRadius: 8),
+                      BoxShadow(color: lineColor.withValues(alpha: 0.3), blurRadius: 8),
                     ],
                   ),
                 )
@@ -99,7 +99,7 @@ class TrainPositionDiagram extends StatelessWidget {
                           color: AppTheme.surfaceDark,
                           shape: BoxShape.circle,
                           border: Border.all(
-                            color: isPassed ? lineColor : Colors.white.withOpacity(0.2),
+                            color: isPassed ? lineColor : Colors.white.withValues(alpha: 0.2),
                             width: 2,
                           ),
                         ),
@@ -149,8 +149,9 @@ class TrainPositionDiagram extends StatelessWidget {
                     ],
                   ),
                 )
-                .animate(onPlay: (c) => c.repeat(reverse: true))
-                .scale(begin: const Offset(1, 1), end: const Offset(1.2, 1.2), duration: 1.seconds),
+                .animate()
+                .fadeIn(duration: 400.ms)
+                .scale(begin: const Offset(0.8, 0.8), end: const Offset(1.0, 1.0), duration: 400.ms),
               ),
             ],
           );

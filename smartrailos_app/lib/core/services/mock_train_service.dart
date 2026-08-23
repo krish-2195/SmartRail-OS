@@ -102,8 +102,12 @@ class MockTrainService {
     final maxFill = coaches.map((c) => c.percentFull).reduce(max);
     
     TrainStatus status = TrainStatus.normal;
-    if (maxFill > 0.9) status = TrainStatus.full;
-    else if (maxFill > 0.7) status = TrainStatus.moderate;
+    if (maxFill > 0.9) {
+      status = TrainStatus.full;
+    } else if (maxFill > 0.7) {
+      status = TrainStatus.moderate;
+    }
+
 
     final stations = getStationsForLine(line);
     final fromIndex = stations.indexWhere((s) => s.id == fromStationId);
