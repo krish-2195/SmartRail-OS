@@ -17,6 +17,8 @@ class TrainOccupancyOut(BaseModel):
     station_name: str
     line_name: str
     direction: str
+    platform_number: int | None = None
+    platform_name: str | None = None
     current_station_crowd: int
     coaches: list[CoachOccupancyOut]
     updated_at: datetime

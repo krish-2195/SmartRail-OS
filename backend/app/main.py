@@ -19,15 +19,16 @@ async def lifespan(app: FastAPI):
         from app.db.session import SessionLocal, engine as db_engine
         from app.models.base import Base
         from app.models.station import Station
-        from app.db.seeder import seed_database
+        from app.db.seeder import seed_database, seed_default_users
         from sqlalchemy import select, func
         
         # 1. Ensure tables exist
         async with db_engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
             
-        # 2. Check if stations table is seeded, if not seed catalog
+        # 2. Check if users or stations table is seeded
         async with SessionLocal() as session:
+            await seed_default_users(session)
             station_count = await session.scalar(select(func.count()).select_from(Station))
             if not station_count or station_count == 0:
                 print("Seeding database catalog...")

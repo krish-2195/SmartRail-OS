@@ -24,13 +24,21 @@ class DashboardService:
         self.sim_service = data_service
 
     async def get_dashboard_snapshot(self, station_name: str, sim_time: str | None = None) -> DashboardSnapshot:
+        # Step 1: Immediate station validation guard (Bug 6 fix)
+        if not self.sim_service.station_exists(station_name):
+            raise HTTPException(status_code=404, detail=f"Station '{station_name}' not found.")
+
         now = self.sim_service.parse_sim_time(sim_time)
 
         incoming = self.sim_service.get_incoming_trains_at_station(station_name, now)
         current = self.sim_service.get_current_trains_at_station(station_name, now)
         
-        # Get current crowd from occupancy service to feed the prediction engine
-        station_crowds = await self.occupancy_service.get_station_crowds()
+        # Step 2: Safe crowd extraction (Bug 1 fix)
+        try:
+            station_crowds = await self.occupancy_service.get_station_crowds(sim_time)
+        except Exception:
+            station_crowds = self.sim_service.list_station_crowds(now)
+            
         current_crowd = 0
         station_id_for_alerts = None
         
@@ -84,10 +92,7 @@ class DashboardService:
                 
         crowd_prediction = await self.prediction_service.get_station_crowd_prediction(current_crowd, now)
 
-        if not self.sim_service.station_exists(station_name):
-            raise HTTPException(status_code=404, detail=f"Station '{station_name}' not found.")
-
-        # Let's override live alert data from DB
+        # Retrieve live alert data from DB
         alerts = await self.alert_service.list_alerts(station_name=station_id_for_alerts)
 
         recommendations = []

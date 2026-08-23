@@ -144,14 +144,18 @@ async def run_simulation_step():
                 station_crowds[sid] += pax
 
         from app.models.route import StationCrowdSnapshot
+        is_overnight = (now.hour >= 23 or now.hour < 6)
         for sid, crowd in station_crowds.items():
+            pred_5 = 0 if (is_overnight or crowd == 0) else int(crowd * 1.1)
+            pred_15 = 0 if (is_overnight or crowd == 0) else int(crowd * 1.25)
+            pred_30 = 0 if (is_overnight or crowd == 0) else int(crowd * 1.4)
             db.add(StationCrowdSnapshot(
                 station_id=sid,
                 timestamp=now,
                 current_crowd=crowd,
-                predicted_5_min=int(crowd * 1.1),
-                predicted_15_min=int(crowd * 1.25),
-                predicted_30_min=int(crowd * 1.4),
+                predicted_5_min=pred_5,
+                predicted_15_min=pred_15,
+                predicted_30_min=pred_30,
             ))
 
         # ── Per-Station Current & Feature Snapshots ──────────────────────────
@@ -211,9 +215,22 @@ async def run_simulation_step():
                 if t.get("status") in ("AT_STATION", "WAITING_AT_TERMINAL") and t.get("current_station_id") == sid:
                     target_train = t
                     status_label = "at_platform"
-                    eta_sec      = 0
                     sched = schedules_map.get(t["train_id"], [])
                     sched_idx = next((i for i, seg in enumerate(sched) if seg["station"]["id"] == sid), None)
+                    
+                    eta_sec = 0
+                    if sched_idx is not None:
+                        dep_str = t.get("departed_terminal_at") or t.get("departs_station_at")
+                        if dep_str:
+                            try:
+                                dep_h, dep_m = map(int, dep_str.split(":"))
+                                dep_dt = datetime(now.year, now.month, now.day, dep_h, dep_m)
+                                target_dep = dep_dt + _td(seconds=sched[sched_idx]["depart_offset"])
+                                eta_sec = int((target_dep - now).total_seconds())
+                                if eta_sec < 0:
+                                    eta_sec = 0
+                            except ValueError:
+                                pass
                     break
 
             # Priority 2 – just departed (IN_TRANSIT, left this station ≤120 s ago)
@@ -292,6 +309,8 @@ async def run_simulation_step():
             if target_train:
                 await db.execute(cur_tbl.insert().values(
                     train_id        = target_train["train_id"],
+                    platform_number = target_train.get("platform_number"),
+                    platform_name   = target_train.get("platform_name"),
                     train_status    = status_label,
                     eta_seconds     = eta_sec,
                     arrival_time    = arr_time,
@@ -305,108 +324,78 @@ async def run_simulation_step():
                     c3_pct          = round(c3.get("occupancy_pct", 0.0), 1),
                     timestamp       = now,
                 ))
+            else:
+                await db.execute(cur_tbl.insert().values(
+                    train_id        = None,
+                    platform_number = None,
+                    platform_name   = None,
+                    train_status    = "none",
+                    eta_seconds     = None,
+                    arrival_time    = None,
+                    departure_time  = None,
+                    total_passengers= 0,
+                    c1_passengers   = 0,
+                    c1_pct          = 0.0,
+                    c2_passengers   = 0,
+                    c2_pct          = 0.0,
+                    c3_passengers   = 0,
+                    c3_pct          = 0.0,
+                    timestamp       = now,
+                ))
 
             # ── Table 2: next upcoming train + estimated coach load ────────
             upcoming_trips = []
             for train in engine._trains:
-                sched = train["schedule"]
-                t_idx = next((i for i, seg in enumerate(sched) if seg["station"]["id"] == sid), None)
-                if t_idx is None:
-                    continue
-                # For each departure of this train
-                for dep_min in train["all_departures"][train["slot_index"]::train["n_trains"]]:
-                    dep_dt = datetime(now.year, now.month, now.day, dep_min//60, dep_min%60)
+                for trip in train.get("trip_instances", []):
+                    sched = trip["schedule"]
+                    t_idx = next((i for i, seg in enumerate(sched) if seg["station"]["id"] == sid), None)
+                    if t_idx is None:
+                        continue
+                    dep_sec = trip["dep_sec"]
+                    dep_dt = datetime(now.year, now.month, now.day) + _td(seconds=dep_sec)
                     arr_dt = dep_dt + _td(seconds=sched[t_idx]["arrive_offset"])
                     dep_stn = dep_dt + _td(seconds=sched[t_idx]["depart_offset"])
                     eta = int((arr_dt - now).total_seconds())
                     # Only include future arrivals
                     if eta > 0:
-                        upcoming_trips.append((train, arr_dt, dep_stn, t_idx))
+                        upcoming_trips.append((train, trip, dep_dt, arr_dt, dep_stn, t_idx))
 
             # If a train is already at platform, exclude it from upcoming
             # (it's the "current" train — upcoming should be the ones after)
             if target_train and status_label == "at_platform":
-                upcoming_trips = [(t, a, d, i) for t, a, d, i in upcoming_trips if t["train_id"] != target_train["train_id"]]
+                upcoming_trips = [(t, tr, d_dt, a, d, i) for t, tr, d_dt, a, d, i in upcoming_trips if t["train_id"] != target_train["train_id"]]
 
-            upcoming_trips.sort(key=lambda x: x[1])
+            upcoming_trips.sort(key=lambda x: x[3])
 
             upcoming_rows = []
-            for feat_t, feat_arr, feat_dep, t_idx in upcoming_trips:
-                # Try to find a matching running train state
-                running_t = next(
-                    (ts for ts in train_states 
-                     if ts["train_id"] == feat_t["train_id"] 
-                     and ts.get("status") != "NOT_IN_SERVICE"
-                     and (ts.get("departed_terminal_at") == feat_arr.strftime("%H:%M") 
-                          or ts.get("departs_station_at") == feat_arr.strftime("%H:%M"))),
-                    None
-                )
-                
-                if running_t:
-                    fc1, fc2, fc3 = _coaches(running_t)
-                    arr_c1 = fc1.get("current_passengers", 0)
-                    arr_c2 = fc2.get("current_passengers", 0)
-                    arr_c3 = fc3.get("current_passengers", 0)
-                else:
-                    from app.services.metro_engine import occupancy_base_factor, LADIES_COACH_FACTOR
-                    import math
-                    base = occupancy_base_factor(feat_arr, feat_t["train_id"])
-                    sched = feat_t["schedule"]
-                    pos = t_idx / max(len(sched) - 1, 1)
-                    direction = feat_t["direction"]
-                    pos_factor = math.sin(pos * math.pi) if direction == "UP" else math.sin((1.0 - pos) * math.pi)
-                    station_boost = 1.25 if sched[t_idx]["station"].get("busy") else 1.0
-                    
-                    if t_idx == 0 or t_idx == len(sched) - 1:
-                        pre_alight_count = 0
-                    else:
-                        prev_pos = max(0, t_idx - 1) / max(len(sched) - 1, 1)
-                        prev_factor = math.sin(prev_pos * math.pi) if direction == "UP" else math.sin((1.0 - prev_pos) * math.pi)
-                        pre_alight_count = int(base * prev_factor * station_boost * CAP * 3)
-                    
-                    ladies_share  = LADIES_COACH_FACTOR / (2 + LADIES_COACH_FACTOR)
-                    general_share = 1.0 / (2 + LADIES_COACH_FACTOR)
-                    
-                    arr_c2 = int(pre_alight_count * ladies_share)
-                    arr_c1 = int(pre_alight_count * general_share)
-                    arr_c3 = pre_alight_count - arr_c1 - arr_c2
-                    
-                    arr_c1 = max(0, min(CAP, arr_c1))
-                    arr_c2 = max(0, min(CAP, arr_c2))
-                    arr_c3 = max(0, min(CAP, arr_c3))
+            from app.services.metro_engine import get_platform_info, get_trip_passenger_profile, SIMULATION_MODE
+            for feat_t, feat_trip, feat_dep_dt, feat_arr, feat_dep, t_idx in upcoming_trips:
+                sched = feat_trip["schedule"]
+                direction = feat_trip["direction"]
+                st_prof = get_trip_passenger_profile(feat_t["train_id"], sched, direction, feat_dep_dt)[t_idx]
+                p_info = get_platform_info(feat_t["line_code"], direction, sid, station.name)
 
-                arr_total = arr_c1 + arr_c2 + arr_c3
+                arr_total = st_prof["arr_passengers"]
+                dep_total = st_prof["dep_passengers"]
+                from app.services.metro_engine import LADIES_COACH_FACTOR
+                ladies_share  = LADIES_COACH_FACTOR / (2 + LADIES_COACH_FACTOR)
+                general_share = 1.0 / (2 + LADIES_COACH_FACTOR)
 
-                # Departure estimates: apply alighting (15 %) and boarding
-                # Boarding drawn from station platform crowd (12 % boards) at feat_arr
-                from app.services.data_service import data_service
-                platform_crowd = data_service._crowd_at_station(station.name, feat_arr)
-                board_total = int(platform_crowd * 0.12)
-                alight_c1   = int(arr_c1 * 0.15)
-                alight_c2   = int(arr_c2 * 0.15)
-                alight_c3   = int(arr_c3 * 0.15)
+                arr_c2 = int(arr_total * ladies_share)
+                arr_c1 = int(arr_total * general_share)
+                arr_c3 = arr_total - arr_c1 - arr_c2
 
-                # Distribute boarding by current coach load ratio
-                if arr_total > 0:
-                    c1_r = arr_c1 / arr_total
-                    c2_r = (arr_c2 / arr_total) * 0.5
-                    c3_r = arr_c3 / arr_total
-                else:
-                    c1_r, c2_r, c3_r = 0.4, 0.2, 0.4
-                r_sum = c1_r + c2_r + c3_r or 1
-                board_c1 = int(board_total * c1_r / r_sum)
-                board_c2 = int(board_total * c2_r / r_sum)
-                board_c3 = board_total - board_c1 - board_c2
+                dep_c2 = int(dep_total * ladies_share)
+                dep_c1 = int(dep_total * general_share)
+                dep_c3 = dep_total - dep_c1 - dep_c2
 
-                dep_c1 = max(0, arr_c1 - alight_c1 + board_c1)
-                dep_c2 = max(0, arr_c2 - alight_c2 + board_c2)
-                dep_c3 = max(0, arr_c3 - alight_c3 + board_c3)
-                dep_total = dep_c1 + dep_c2 + dep_c3
-
+                time_fmt = "%H:%M:%S" if SIMULATION_MODE == "PRESENTATION" else "%H:%M"
                 upcoming_rows.append({
                     "train_id":                 feat_t["train_id"],
-                    "estimated_arrival_time":   feat_arr.strftime("%H:%M"),
-                    "estimated_departure_time": feat_dep.strftime("%H:%M"),
+                    "platform_number":          p_info["platform_number"],
+                    "platform_name":            p_info["platform_name"],
+                    "estimated_arrival_time":   feat_arr.strftime(time_fmt),
+                    "estimated_departure_time": feat_dep.strftime(time_fmt),
                     "arr_total_passengers":     arr_total,
                     "arr_c1_passengers":        arr_c1,
                     "arr_c1_pct":               round(arr_c1 / CAP * 100, 1),
@@ -529,9 +518,40 @@ async def run_simulation_step():
             from app.db.session import engine as db_engine
             from sqlalchemy import text
             async with db_engine.connect() as conn:
-                autocommit_conn = await conn.execution_options(isolation_level="AUTOCOMMIT")
+                autocommit_conn = conn.execution_options(isolation_level="AUTOCOMMIT")
                 await autocommit_conn.execute(text("VACUUM"))
             _last_vacuum_date = now.date()
             logger.info("Daily database vacuum completed successfully (reclaimed fragmented space).")
         except Exception as vacuum_exc:
             logger.warning(f"Daily database vacuum failed: {vacuum_exc}")
+
+    # ── Real-Time WebSocket Broadcast (Direct Cache Hydration) ───────────────
+    try:
+        from app.core.websockets import manager
+        if manager.active_connections:
+            from app.services.data_service import data_service
+            live_trains_out = [t.model_dump() for t in data_service.get_all_trains_live(now)]
+            interchange_trains = [t.model_dump() for t in data_service.get_trains_at_station("Old High Court", now)]
+            incoming_trains = [t.model_dump() for t in data_service.get_incoming_trains_at_station("Old High Court", now)]
+            crowd_pred = data_service.get_station_crowd_prediction("Old High Court", now)
+            crowd_dump = crowd_pred.model_dump() if crowd_pred else {
+                "current_station_crowd": 0, "predicted_5_min": 0, "predicted_15_min": 0, "predicted_30_min": 0
+            }
+            
+            await manager.broadcast({
+                "event_type": "simulation_tick",
+                "data": {
+                    "timestamp": now.isoformat(),
+                    "trains": live_trains_out,
+                    "snapshot": {
+                        "current_trains": interchange_trains,
+                        "incoming_trains": incoming_trains,
+                        "crowd_prediction": crowd_dump,
+                        "alerts": [],
+                        "recommendations": []
+                    },
+                    "station_crowds": station_crowds,
+                }
+            })
+    except Exception as ws_broadcast_exc:
+        logger.debug(f"WS simulation_tick broadcast notice: {ws_broadcast_exc}")

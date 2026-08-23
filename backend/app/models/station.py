@@ -54,7 +54,9 @@ def _make_current_table(station_id: str) -> Table:
         # ── Identity ─────────────────────────────────────────────────────────
         Column("id", Integer, primary_key=True, autoincrement=True),
         # ── Which train ──────────────────────────────────────────────────────
-        Column("train_id",     String(32), nullable=True),
+        Column("train_id",        String(32),  nullable=True),
+        Column("platform_number", Integer,     nullable=True),
+        Column("platform_name",   String(100), nullable=True),
         # "at_platform" | "just_departed" | "arriving" | "none"
         Column("train_status", String(20), nullable=True),
         Column("eta_seconds",  Integer,    nullable=True),   # 0 if at platform
@@ -86,7 +88,9 @@ def _make_feature_table(station_id: str) -> Table:
         # ── Identity ─────────────────────────────────────────────────────────
         Column("id", Integer, primary_key=True, autoincrement=True),
         # ── Which upcoming train ──────────────────────────────────────────────
-        Column("train_id", String(32), nullable=True),
+        Column("train_id",        String(32),  nullable=True),
+        Column("platform_number", Integer,     nullable=True),
+        Column("platform_name",   String(100), nullable=True),
         # ── Schedule (exact from engine timetable, HH:MM) ────────────────────
         Column("estimated_arrival_time",   String(16), nullable=True),
         Column("estimated_departure_time", String(16), nullable=True),

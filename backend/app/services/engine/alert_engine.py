@@ -82,34 +82,35 @@ class AlertEngine:
 
         # 2. Train Delay Rule
         if event.delay_minutes and event.delay_minutes > 5:
-            alert_id = f"alt-{uuid.uuid4().hex[:8]}"
-            alert = Alert(
-                id=alert_id,
-                alert_type=AlertType.TRAIN_DELAY,
-                severity=SeverityLevel.MEDIUM,
-                title="Train Delayed",
-                message=f"Train delayed by {event.delay_minutes} minutes.",
-                station_id=event.station_id,
-                train_id=event.train_id,
-                created_at=datetime.utcnow()
-            )
-            await self.alert_repo.create(alert)
-            await self.db.commit()
-            logger.info(f"Generated alert: {alert_id} for Train Delay")
-            
-            await manager.broadcast({
-                "event_type": "alert_issued",
-                "data": {
-                    "id": alert.id,
-                    "alert_type": alert.alert_type.value,
-                    "severity": alert.severity.value,
-                    "title": alert.title,
-                    "message": alert.message,
-                    "station_name": alert.station_id,
-                    "train_id": alert.train_id,
-                    "created_at": alert.created_at.isoformat()
-                }
-            })
+            if not await self._has_active_alert_for_train(event.train_id, AlertType.TRAIN_DELAY):
+                alert_id = f"alt-{uuid.uuid4().hex[:8]}"
+                alert = Alert(
+                    id=alert_id,
+                    alert_type=AlertType.TRAIN_DELAY,
+                    severity=SeverityLevel.MEDIUM,
+                    title="Train Delayed",
+                    message=f"Train delayed by {event.delay_minutes} minutes.",
+                    station_id=event.station_id,
+                    train_id=event.train_id,
+                    created_at=datetime.now()
+                )
+                await self.alert_repo.create(alert)
+                await self.db.commit()
+                logger.info(f"Generated alert: {alert_id} for Train Delay")
+                
+                await manager.broadcast({
+                    "event_type": "alert_issued",
+                    "data": {
+                        "id": alert.id,
+                        "alert_type": alert.alert_type.value,
+                        "severity": alert.severity.value,
+                        "title": alert.title,
+                        "message": alert.message,
+                        "station_name": alert.station_id,
+                        "train_id": alert.train_id,
+                        "created_at": alert.created_at.isoformat()
+                    }
+                })
 
 async def get_alert_engine(db: AsyncSession = Depends(get_db)) -> AlertEngine:
     return AlertEngine(db, AlertRepository(db))

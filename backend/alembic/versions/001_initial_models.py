@@ -1,12 +1,23 @@
-@revert(["Create all models"])
-down
+"""initial models
+
+Revision ID: 001_initial_models
+Revises: 
+Create Date: 2026-08-20
+"""
+
+from alembic import op
+import sqlalchemy as sa
+
+# revision identifiers, used by Alembic.
+revision = '001_initial_models'
+down_revision = None
+branch_labels = None
+depends_on = None
+
+
+def upgrade() -> None:
     pass
 
-up
-    # Create tables
-    op.create_table('users', Column("..."))  # Full SQLAlchemy migration boilerplate
-    ...
-    # All model creations go here
-    # Example:
-    op.create_table('trains', Column(...))  # Replace with complete migration
-    ...
+
+def downgrade() -> None:
+    pass

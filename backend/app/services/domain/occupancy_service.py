@@ -94,17 +94,19 @@ class OccupancyService:
         return self.sim_service.get_train_occupancy(train_id, now)
 
     async def get_all_train_occupancy(self, sim_time: str | None = None) -> List[TrainOccupancyOut]:
-        """Get occupancy for all trains from DB."""
+        """Get occupancy for all trains from DB with simulation fallback."""
         now = self.sim_service.parse_sim_time(sim_time)
         trains = await self.train_repo.get_all_active()
-        if not trains:
-            return self.sim_service.list_train_occupancy(now)
         
         results = []
-        for t in trains:
-            occ = await self.get_train_occupancy(t.train_id, sim_time)
-            if occ:
-                results.append(occ)
+        if trains:
+            for t in trains:
+                occ = await self.get_train_occupancy(t.train_id, sim_time)
+                if occ:
+                    results.append(occ)
+        
+        if not results:
+            return self.sim_service.list_train_occupancy(now)
         return results
 
     async def get_station_crowds(self, sim_time: str | None = None) -> List[StationCrowdOut]:

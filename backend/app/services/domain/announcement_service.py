@@ -10,6 +10,7 @@ from app.db.session import get_db
 from app.repositories.base import AnnouncementRepository
 from app.schemas.rail import AnnouncementOut, AnnouncementCreate
 from app.models.announcement import Announcement
+from app.core.websockets import manager
 
 logger = logging.getLogger(__name__)
 
@@ -32,21 +33,34 @@ class AnnouncementService:
         ]
 
     async def broadcast_announcement(self, create_data: AnnouncementCreate) -> AnnouncementOut:
-        """Create a new active announcement and log the broadcast."""
+        """Create a new active announcement and broadcast via WebSocket."""
         announcement_id = f"ann-{uuid.uuid4().hex[:8]}"
+        from app.core.sim_clock import sim_clock
         announcement = Announcement(
             id=announcement_id,
             text=create_data.text,
             context_info=create_data.context_info,
             is_active=True,
-            created_at=datetime.utcnow()
+            created_at=sim_clock.now()
         )
         
         await self.announcement_repo.create(announcement)
+        await self.db.commit()
         
-        # Log to simulate sending a push notification and physical PA system broadcast
         logger.info(f"BROADCAST INITIATED: {announcement.text}")
         logger.info(f"PUSH NOTIFICATION DISPATCHED to passenger app for announcement {announcement_id}")
+
+        # Broadcast in real-time to all connected WebSocket clients
+        await manager.broadcast({
+            "event_type": "announcement_broadcast",
+            "data": {
+                "id": announcement.id,
+                "text": announcement.text,
+                "context": announcement.context_info,
+                "is_active": announcement.is_active,
+                "created_at": announcement.created_at.isoformat()
+            }
+        })
 
         return AnnouncementOut(
             id=announcement.id,

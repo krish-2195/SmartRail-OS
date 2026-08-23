@@ -1,15 +1,26 @@
 import asyncio
 import httpx
+import os
 import random
 from datetime import datetime
 
+API_BASE_URL = os.getenv("API_BASE_URL", "http://127.0.0.1:8000").rstrip("/")
+
 async def simulate():
-    print("Starting IoT simulation... pushing random spikes every 5 seconds.")
+    print(f"Starting IoT simulation... pushing random spikes to {API_BASE_URL} every 5 seconds.")
     
     stations = ["BL01", "BL02", "BL03", "RL10", "RL11", "RL12"]
     trains = ["BL-UP-01", "BL-DO-02", "RL-UP-01", "RL-DO-01"]
     
-    async with httpx.AsyncClient() as client:
+    urls = [
+        f"{API_BASE_URL}/api/v1/ingestion/events",
+        "http://127.0.0.1:8000/api/v1/ingestion/events",
+        "http://localhost:8000/api/v1/ingestion/events",
+    ]
+    # Deduplicate while preserving order
+    target_urls = list(dict.fromkeys(urls))
+
+    async with httpx.AsyncClient(timeout=5.0) as client:
         while True:
             station = random.choice(stations)
             train = random.choice(trains)
@@ -35,12 +46,19 @@ async def simulate():
                 "delay_minutes": random.randint(0, 5)
             }
             
-            try:
-                res = await client.post("http://localhost:8000/api/v1/ingestion/events", json=payload)
-                if res.status_code == 202:
-                    print(f"[{datetime.now().time()}] Pushed event for Train {train} at Station {station} - Occupancy: {occ:.1f}%")
-            except Exception as e:
-                print("Failed to push event:", e)
+            sent = False
+            for target_url in target_urls:
+                try:
+                    res = await client.post(target_url, json=payload)
+                    if res.status_code == 202:
+                        print(f"[{datetime.now().time()}] Pushed event for Train {train} at Station {station} ({target_url}) - Occupancy: {occ:.1f}%")
+                        sent = True
+                        break
+                except Exception:
+                    continue
+            
+            if not sent:
+                print(f"[{datetime.now().time()}] Failed to push event to endpoints: {target_urls}")
                 
             await asyncio.sleep(5)
 
