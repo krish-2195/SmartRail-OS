@@ -1,241 +1,264 @@
 /**
  * @file main.cpp
- * @brief SmartRail OS — ESP32 Directional Passenger Counter
+ * @brief SmartRail OS — ESP32 Dual-Beam Directional Passenger Counter
  *
- * Hardware
- * --------
- * Two HC-SR04 ultrasonic sensors are mounted at opposite sides of a metro
- * coach door frame. The order in which a person breaks each sensor's beam
- * determines the direction of travel:
+ * Robust Time-Window Directional Traversal Algorithm:
+ * ----------------------------------------------------
+ *  Boarding (IN: Platform S0 -> Coach S1):
+ *    IDLE -> S0 Triggered (STATE_IN_STARTED) -> S1 Triggered (STATE_IN_MIDWAY) -> Both Clear -> COUNT +1 IN
  *
- *   Sensor 1 first → Sensor 2 : BOARDING  (occupancy++)
- *   Sensor 2 first → Sensor 1 : ALIGHTING (occupancy--)
+ *  Alighting (OUT: Coach S1 -> Platform S0):
+ *    IDLE -> S1 Triggered (STATE_OUT_STARTED) -> S0 Triggered (STATE_OUT_MIDWAY) -> Both Clear -> COUNT -1 OUT
  *
- * Wiring
- * ------
- *   GPIO  4  → HC-SR04 #1 TRIG  (entry side)
- *   GPIO 14  ← HC-SR04 #1 ECHO  (via 1kΩ / 2kΩ voltage divider → 3.3 V)
- *   GPIO 27  → HC-SR04 #2 TRIG  (exit/coach side)
- *   GPIO 33  ← HC-SR04 #2 ECHO  (via 1kΩ / 2kΩ voltage divider → 3.3 V)
- *
- * Serial output
- * -------------
- *   Baud: 115200
- *   Format: "Occupancy: <N>\n" printed after each boarding / alighting event.
- *   The companion serial_bridge.py parses this and POSTs to the backend.
- *
- * State machine
- * -------------
- *   IDLE → SENSOR1_FIRST → (s2 fires) → PASSENGER IN  → WAIT_CLEAR → IDLE
- *   IDLE → SENSOR2_FIRST → (s1 fires) → PASSENGER OUT → WAIT_CLEAR → IDLE
- *   Any state: TIMEOUT (2 s) → IDLE  (incomplete crossing detected)
- *
- * @board   esp32dev (ESP32-WROOM-32 or compatible)
- * @framework Arduino (via PlatformIO)
+ * Features:
+ *  - 10ms fast pulse timeout to prevent loop blocking
+ *  - Non-blocking state window (preserves counts during fast strides & single-beam gaps)
+ *  - Anti-rebound timeout (aborts if passenger backs away without touching exit beam)
+ *  - Clean JSON serial output for serial_bridge.py
  */
 
 #include <Arduino.h>
+#include "esp_config.h"
 
-// ─── Sensor pin assignments ───────────────────────────────────────────────────
-#define TRIG1 4    ///< Trigger pin for HC-SR04 sensor 1 (entry / platform side)
-#define ECHO1 14   ///< Echo pin for HC-SR04 sensor 1 (must be 3.3 V via divider)
+#if ENABLE_WIFI
+  #include <WiFi.h>
+  #include <HTTPClient.h>
+#endif
 
-#define TRIG2 27   ///< Trigger pin for HC-SR04 sensor 2 (exit / coach interior side)
-#define ECHO2 33   ///< Echo pin for HC-SR04 sensor 2 (must be 3.3 V via divider)
+// ─── Authoritative State & Counters ──────────────────────────────────────────
+volatile int occupancy = 0;
+volatile int total_in  = 0;
+volatile int total_out = 0;
 
-// ─── Tuning parameters ────────────────────────────────────────────────────────
-/** Person detected if measured distance is closer than this (cm). */
-const float THRESHOLD = 20.0;
+enum TraversalState {
+  STATE_IDLE,
 
-/** Max milliseconds allowed to complete a full crossing before resetting.
- *  Prevents the FSM locking up when a person stops mid-doorway. */
-const unsigned long TIMEOUT = 2000;
+  // Boarding Sequence (S0 -> S1)
+  STATE_IN_STARTED,    // S0 triggered first
+  STATE_IN_MIDWAY,     // S1 reached (sequence validated)
 
-/** Minimum milliseconds between consecutive count events.
- *  Guards against sensor bounce / reflection double-counting. */
-const unsigned long COOLDOWN = 1000;
-
-// ─── State ────────────────────────────────────────────────────────────────────
-/** Running passenger occupancy count. Floor is 0 (never goes negative). */
-int occupancy = 0;
-
-/**
- * @brief Finite state machine states for directional counting.
- */
-enum State {
-  IDLE,           ///< No active crossing; waiting with cooldown enforced
-  SENSOR1_FIRST,  ///< Sensor 1 broke first — potential boarding event
-  SENSOR2_FIRST,  ///< Sensor 2 broke first — potential alighting event
-  WAIT_CLEAR      ///< Crossing complete; waiting for both sensors to clear
+  // Alighting Sequence (S1 -> S0)
+  STATE_OUT_STARTED,   // S1 triggered first
+  STATE_OUT_MIDWAY     // S0 reached (sequence validated)
 };
 
-State state = IDLE;            ///< Current FSM state
-unsigned long stateStartTime = 0; ///< Timestamp when current state was entered
-unsigned long lastCountTime  = 0; ///< Timestamp of the most recent count event
+TraversalState state = STATE_IDLE;
+unsigned long stateStartTime    = 0;
+unsigned long lastCountTime     = 0;
+unsigned long lastTelemetrySync = 0;
+unsigned long ledTurnOffTime    = 0;
 
-// ─── Functions ────────────────────────────────────────────────────────────────
+// Filter history (3-sample median ring buffer)
+float s0_history[3] = {999.0f, 999.0f, 999.0f};
+float s1_history[3] = {999.0f, 999.0f, 999.0f};
+int sample_idx = 0;
 
-/**
- * @brief Measure distance using an HC-SR04 ultrasonic sensor.
- *
- * Sends a 10 µs trigger pulse and times the returning echo pulse with
- * pulseIn(). The speed of sound at room temperature is ~343 m/s
- * (0.0343 cm/µs), and the sound must travel to the object and back, so
- * distance = duration_µs × 0.0343 / 2.
- *
- * @param trigPin  GPIO connected to the sensor's TRIG pin.
- * @param echoPin  GPIO connected to the sensor's ECHO pin (3.3 V safe).
- * @return         Distance in centimetres, or 999 if no echo within 30 ms.
- */
-float getDistance(int trigPin, int echoPin) {
-  // Ensure trigger starts LOW
+// Hysteresis latches
+bool s0_blocked = false;
+bool s1_blocked = false;
+
+// ─── Fast Median Filter & Distance Ping ───────────────────────────────────────
+
+float median3(float a, float b, float c) {
+  if ((a <= b && b <= c) || (c <= b && b <= a)) return b;
+  if ((b <= a && a <= c) || (c <= a && a <= b)) return a;
+  return c;
+}
+
+float pingUltrasonic(int trigPin, int echoPin) {
   digitalWrite(trigPin, LOW);
   delayMicroseconds(2);
 
-  // Send a 10 µs HIGH pulse to initiate an ultrasonic burst
   digitalWrite(trigPin, HIGH);
   delayMicroseconds(10);
   digitalWrite(trigPin, LOW);
 
-  // Measure the width of the ECHO pulse (timeout = 30 000 µs ≈ ~515 cm max)
-  long duration = pulseIn(echoPin, HIGH, 30000);
+  // Fast pulse timeout ~ 10ms (approx 1.7 meters max range)
+  long duration = pulseIn(echoPin, HIGH, PULSE_TIMEOUT_US);
 
-  // If pulseIn timed out it returns 0 — report as "nothing detected"
-  if (duration == 0)
-    return 999;
+  if (duration <= 0 || duration >= PULSE_TIMEOUT_US) {
+    return 999.0f;
+  }
 
-  // Convert travel time to distance (round-trip, hence ÷ 2)
-  return duration * 0.0343 / 2.0;
+  float distanceCm = (duration * 0.0343f) / 2.0f;
+  if (distanceCm < 2.0f || distanceCm > 400.0f) {
+    return 999.0f;
+  }
+
+  return distanceCm;
 }
 
-// ─── Arduino lifecycle ────────────────────────────────────────────────────────
+void dispatchCrossing(const char* dir, int in_d, int out_d, float d0, float d1) {
+  char jsonLine[160];
+  snprintf(
+    jsonLine,
+    sizeof(jsonLine),
+    "{\"event\":\"%s\",\"in_delta\":%d,\"out_delta\":%d,\"occupancy\":%d,\"total_in\":%d,\"total_out\":%d,\"d1\":%.1f,\"d2\":%.1f}",
+    dir, in_d, out_d, occupancy, total_in, total_out, d0, d1
+  );
+  Serial.println(jsonLine);
+
+  // Status LED pulse (non-blocking 100ms)
+  digitalWrite(LED_PIN, HIGH);
+  ledTurnOffTime = millis() + 100;
+}
+
+// ─── Arduino Lifecycle ────────────────────────────────────────────────────────
 
 void setup() {
   Serial.begin(115200);
+  delay(200);
 
-  // Configure sensor pins
-  pinMode(TRIG1, OUTPUT);
-  pinMode(ECHO1, INPUT);
+  pinMode(TRIG1_PIN, OUTPUT);
+  pinMode(ECHO1_PIN, INPUT);
 
-  pinMode(TRIG2, OUTPUT);
-  pinMode(ECHO2, INPUT);
+  pinMode(TRIG2_PIN, OUTPUT);
+  pinMode(ECHO2_PIN, INPUT);
 
-  Serial.println("================================");
-  Serial.println("Metro Passenger Counter Started");
-  Serial.println("================================");
+  pinMode(LED_PIN, OUTPUT);
+  digitalWrite(LED_PIN, LOW);
+
+  digitalWrite(TRIG1_PIN, LOW);
+  digitalWrite(TRIG2_PIN, LOW);
+
+  Serial.println();
+  Serial.println("==================================================");
+  Serial.println(" SmartRail OS — Robust Passenger Gate Counter     ");
+  Serial.printf (" S0 (Entry): GPIO %d/%d | S1 (Exit): GPIO %d/%d\n", TRIG1_PIN, ECHO1_PIN, TRIG2_PIN, ECHO2_PIN);
+  Serial.printf (" Thresholds: Block < %.1f cm | Clear > %.1f cm\n", THRESHOLD_ENTER_CM, THRESHOLD_LEAVE_CM);
+  Serial.printf (" Max Echo Timeout: %d us | Traversal Window: %d ms\n", PULSE_TIMEOUT_US, TRAVERSAL_TIMEOUT_MS);
+  Serial.printf (" Station: %s | Coach: %s | Invert: %d\n", DEFAULT_STATION_ID, DEFAULT_COACH_ID, INVERT_DIRECTION);
+  Serial.println("==================================================");
+  Serial.println();
 }
 
-/**
- * @brief Main sensing loop — runs at ~20 Hz (50 ms sleep at end).
- *
- * Each iteration:
- *   1. Reads distance from both sensors.
- *   2. Converts each distance to a boolean "triggered" flag.
- *   3. Steps the directional FSM.
- *   4. Sleeps 50 ms before the next cycle.
- *
- * FSM transitions are documented inline below.
- */
 void loop() {
-  float d1 = getDistance(TRIG1, ECHO1);
-  float d2 = getDistance(TRIG2, ECHO2);
+  unsigned long now = millis();
 
-  // true if a person (or object) is within the detection threshold
-  bool s1 = d1 < THRESHOLD;
-  bool s2 = d2 < THRESHOLD;
+  // 0. Non-blocking LED turn-off
+  if (ledTurnOffTime > 0 && now >= ledTurnOffTime) {
+    digitalWrite(LED_PIN, LOW);
+    ledTurnOffTime = 0;
+  }
 
+  // 1. Read ultrasonic pings with cross-talk avoidance delay
+  float raw0 = pingUltrasonic(TRIG1_PIN, ECHO1_PIN);
+  delay(SENSOR_SPACING_MS);
+  float raw1 = pingUltrasonic(TRIG2_PIN, ECHO2_PIN);
+
+  // 2. 3-Sample Median Ring Filter (fast response with glitch rejection)
+  s0_history[sample_idx] = raw0;
+  s1_history[sample_idx] = raw1;
+  sample_idx = (sample_idx + 1) % 3;
+
+  float d0 = median3(s0_history[0], s0_history[1], s0_history[2]);
+  float d1 = median3(s1_history[0], s1_history[1], s1_history[2]);
+
+  // 3. Hysteresis Obstacle Detection
+  s0_blocked = s0_blocked ? (d0 < THRESHOLD_LEAVE_CM) : (d0 < THRESHOLD_ENTER_CM);
+  s1_blocked = s1_blocked ? (d1 < THRESHOLD_LEAVE_CM) : (d1 < THRESHOLD_ENTER_CM);
+
+  // Handle optional physical inversion
+  bool b0 = INVERT_DIRECTION ? s1_blocked : s0_blocked;
+  bool b1 = INVERT_DIRECTION ? s0_blocked : s1_blocked;
+
+#if DEBUG_SERIAL
+  Serial.printf("d0: %.1f cm (%d) | d1: %.1f cm (%d) | state: %d\n", d0, b0, d1, b1, state);
+#endif
+
+  // 4. Directional Traversal State Machine
   switch (state) {
 
-    // ── IDLE ─────────────────────────────────────────────────────────────────
-    // Wait for the cooldown period to expire, then look for the first
-    // sensor to trigger.  Only one sensor should trigger at a time —
-    // simultaneous triggers (both s1 && s2) are ignored to avoid counting
-    // objects that are centred in the doorway (e.g. trolleys held still).
-    case IDLE:
-
-      if (millis() - lastCountTime < COOLDOWN)
-        break;  // Still in cooldown — do not start a new crossing
-
-      if (s1 && !s2) {
-        // Person approaching from the platform side (boarding)
-        state = SENSOR1_FIRST;
-        stateStartTime = millis();
-      }
-      else if (s2 && !s1) {
-        // Person approaching from inside the coach (alighting)
-        state = SENSOR2_FIRST;
-        stateStartTime = millis();
+    // ── IDLE: Waiting for first beam interruption ─────────────────────────────
+    case STATE_IDLE:
+      if (now - lastCountTime < COOLDOWN_MS) {
+        break; // Post-count debounce cooldown
       }
 
+      if (b0 && !b1) {
+        // Sensor 0 triggered first -> Candidate Boarding (IN)
+        state = STATE_IN_STARTED;
+        stateStartTime = now;
+      }
+      else if (b1 && !b0) {
+        // Sensor 1 triggered first -> Candidate Alighting (OUT)
+        state = STATE_OUT_STARTED;
+        stateStartTime = now;
+      }
       break;
 
-    // ── SENSOR1_FIRST ────────────────────────────────────────────────────────
-    // Sensor 1 already triggered.  Wait for sensor 2 to trigger next,
-    // which confirms a full left-to-right crossing → BOARDING.
-    case SENSOR1_FIRST:
+    // ── BOARDING SEQUENCE (IN: S0 -> S1) ───────────────────────────────────────
+    case STATE_IN_STARTED:
+      if (b1) {
+        // Sensor 1 triggered -> Candidate confirmed in progress
+        state = STATE_IN_MIDWAY;
+        stateStartTime = now; // Reset timer for completion phase
+      }
+      else if (now - stateStartTime > TRAVERSAL_TIMEOUT_MS) {
+        // Passenger backed away without reaching S1 -> Reset
+        state = STATE_IDLE;
+      }
+      break;
 
-      if (s2) {
-        // ✅ Boarding confirmed — person crossed fully from entry → exit
+    case STATE_IN_MIDWAY:
+      if (!b0 && !b1) {
+        // Both beams now completely cleared -> Passenger fully entered!
+        total_in++;
         occupancy++;
-        lastCountTime = millis();
-
-        Serial.println();
-        Serial.println("PASSENGER IN");
-        Serial.print("Occupancy: ");
-        Serial.println(occupancy);
-        Serial.println();
-
-        state = WAIT_CLEAR;
+        lastCountTime = now;
+        dispatchCrossing("IN", 1, 0, d0, d1);
+        state = STATE_IDLE;
       }
-
-      // Safety net: reset if crossing takes too long (person turned back)
-      if (millis() - stateStartTime > TIMEOUT) {
-        state = IDLE;
+      else if (now - stateStartTime > TRAVERSAL_TIMEOUT_MS) {
+        // Traversal stalled or person stopped inside doorway too long -> Reset
+        state = STATE_IDLE;
       }
-
       break;
 
-    // ── SENSOR2_FIRST ────────────────────────────────────────────────────────
-    // Sensor 2 already triggered.  Wait for sensor 1 to trigger next,
-    // which confirms a full right-to-left crossing → ALIGHTING.
-    case SENSOR2_FIRST:
-
-      if (s1) {
-        // ✅ Alighting confirmed — person crossed fully from exit → entry
-        if (occupancy > 0)
-          occupancy--;  // Floor at 0 — occupancy can never be negative
-
-        lastCountTime = millis();
-
-        Serial.println();
-        Serial.println("PASSENGER OUT");
-        Serial.print("Occupancy: ");
-        Serial.println(occupancy);
-        Serial.println();
-
-        state = WAIT_CLEAR;
+    // ── ALIGHTING SEQUENCE (OUT: S1 -> S0) ─────────────────────────────────────
+    case STATE_OUT_STARTED:
+      if (b0) {
+        // Sensor 0 triggered -> Candidate confirmed in progress
+        state = STATE_OUT_MIDWAY;
+        stateStartTime = now; // Reset timer for completion phase
       }
-
-      // Safety net: reset if crossing takes too long
-      if (millis() - stateStartTime > TIMEOUT) {
-        state = IDLE;
+      else if (now - stateStartTime > TRAVERSAL_TIMEOUT_MS) {
+        // Passenger backed away without reaching S0 -> Reset
+        state = STATE_IDLE;
       }
-
       break;
 
-    // ── WAIT_CLEAR ───────────────────────────────────────────────────────────
-    // A count event was recorded.  Remain here until the doorway is fully
-    // clear (both sensors stop triggering) before allowing the next event.
-    // This prevents a single slow crossing from generating multiple counts.
-    case WAIT_CLEAR:
-
-      if (!s1 && !s2) {
-        state = IDLE;
+    case STATE_OUT_MIDWAY:
+      if (!b0 && !b1) {
+        // Both beams now completely cleared -> Passenger fully exited!
+        total_out++;
+        if (occupancy > 0) occupancy--;
+        lastCountTime = now;
+        dispatchCrossing("OUT", 0, 1, d0, d1);
+        state = STATE_IDLE;
       }
-
+      else if (now - stateStartTime > TRAVERSAL_TIMEOUT_MS) {
+        // Traversal stalled or person stopped inside doorway too long -> Reset
+        state = STATE_IDLE;
+      }
       break;
   }
 
-  // 50 ms sleep → ~20 Hz sensing rate (adequate for human walking speed)
-  delay(50);
+  // 5. Periodic Heartbeat Sync (every 1.5s when idle)
+  if (now - lastTelemetrySync > 1500) {
+    lastTelemetrySync = now;
+    if (state == STATE_IDLE) {
+      char syncBuf[160];
+      snprintf(
+        syncBuf,
+        sizeof(syncBuf),
+        "{\"event\":\"SYNC\",\"in_delta\":0,\"out_delta\":0,\"occupancy\":%d,\"total_in\":%d,\"total_out\":%d,\"d1\":%.1f,\"d2\":%.1f}",
+        occupancy, total_in, total_out, d0, d1
+      );
+      Serial.println(syncBuf);
+    }
+  }
+
+  // Fast loop cadence (~5ms)
+  delay(5);
 }
