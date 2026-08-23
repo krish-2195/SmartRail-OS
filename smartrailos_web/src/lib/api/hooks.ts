@@ -19,14 +19,40 @@ import {
   stationFeatureQuery,
   snapshotQuery,
 } from "./queries";
+import { kpiFromSnapshot, adaptRecommendations } from "./smartrail";
+import { KPI, RECOMMENDATIONS } from "@/lib/mock/data";
 
 export const useTrains = () => useQuery(trainsQuery);
 export const useTrain = (id: string) => useQuery(trainQuery(id));
 export const useDashboardSnapshot = () => useQuery(snapshotQuery);
-export const useKpi = () => useQuery(kpiQuery);
+
+// Derive KPI and Recommendations from shared snapshot to eliminate redundant 3x polling
+export const useKpi = () => {
+  const snap = useDashboardSnapshot();
+  const kpiQ = useQuery(kpiQuery);
+  if (snap.data) {
+    return {
+      ...snap,
+      data: kpiFromSnapshot(snap.data),
+    };
+  }
+  return kpiQ;
+};
+
+export const useRecommendations = () => {
+  const snap = useDashboardSnapshot();
+  const recQ = useQuery(recommendationsQuery);
+  if (snap.data?.recommendations) {
+    return {
+      ...snap,
+      data: adaptRecommendations(snap.data.recommendations),
+    };
+  }
+  return recQ;
+};
+
 export const useKpiHistory = () => useQuery(kpiHistoryQuery);
 export const useAlerts = () => useQuery(alertsQuery);
-export const useRecommendations = () => useQuery(recommendationsQuery);
 export const useAnnouncements = () => useQuery(announcementsQuery);
 export const useNotifications = () => useQuery(notificationsQuery);
 export const useStations = () => useQuery(stationsQuery);
@@ -42,12 +68,31 @@ export function useAcknowledgeAlert() {
   return useMutation({
     mutationFn: async (alertId: string) => {
       if (USE_MOCK) return { ok: true };
-      return apiFetch<void>(
+      return apiFetch<{ status: string }>(
         `/alerts/${encodeURIComponent(alertId)}/acknowledge`,
         { method: "POST" },
       );
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: queryKeys.alerts }),
+    onMutate: async (alertId: string) => {
+      await qc.cancelQueries({ queryKey: queryKeys.alerts });
+      const previous = qc.getQueryData<any[]>(queryKeys.alerts);
+      if (previous) {
+        qc.setQueryData<any[]>(
+          queryKeys.alerts,
+          previous.map((a) => (a.id === alertId ? { ...a, acknowledged: true } : a))
+        );
+      }
+      return { previous };
+    },
+    onError: (_err, _id, context) => {
+      if (context?.previous) {
+        qc.setQueryData(queryKeys.alerts, context.previous);
+      }
+    },
+    onSettled: () => {
+      qc.invalidateQueries({ queryKey: queryKeys.alerts });
+      qc.invalidateQueries({ queryKey: queryKeys.snapshot });
+    },
   });
 }
 
@@ -62,5 +107,39 @@ export function useBroadcastAnnouncement() {
       });
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: queryKeys.announcements }),
+  });
+}
+
+export function useResolveAlert() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (alertId: string) => {
+      if (USE_MOCK) return { ok: true };
+      return apiFetch<{ status: string }>(
+        `/alerts/${encodeURIComponent(alertId)}/resolve`,
+        { method: "POST" },
+      );
+    },
+    onMutate: async (alertId: string) => {
+      await qc.cancelQueries({ queryKey: queryKeys.alerts });
+      const previous = qc.getQueryData<any[]>(queryKeys.alerts);
+      if (previous) {
+        qc.setQueryData<any[]>(
+          queryKeys.alerts,
+          previous.map((a) => (a.id === alertId ? { ...a, resolved: true } : a))
+        );
+      }
+      return { previous };
+    },
+    onError: (_err, _id, context) => {
+      if (context?.previous) {
+        qc.setQueryData(queryKeys.alerts, context.previous);
+      }
+    },
+    onSettled: () => {
+      qc.invalidateQueries({ queryKey: queryKeys.alerts });
+      qc.invalidateQueries({ queryKey: queryKeys.snapshot });
+      qc.invalidateQueries({ queryKey: queryKeys.kpi });
+    },
   });
 }

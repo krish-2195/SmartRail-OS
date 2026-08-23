@@ -120,6 +120,7 @@ function RootShell({ children }: { children: ReactNode }) {
 }
 
 import { useGlobalWebSocket } from "../lib/use-global-ws";
+import { AuthProvider } from "../lib/auth-context";
 
 function RootComponent() {
   const { queryClient } = Route.useRouteContext();
@@ -129,7 +130,10 @@ function RootComponent() {
 
   return (
     <QueryClientProvider client={queryClient}>
-      <Outlet />
+      <AuthProvider>
+        <Outlet />
+      </AuthProvider>
     </QueryClientProvider>
   );
 }
+

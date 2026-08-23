@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { HOURLY_FLOW, PLATFORM_HEATMAP, WEEKLY_TREND } from "@/lib/mock/data";
-import { useTrains } from "@/lib/api/hooks";
+import { useTrains, useHourlyFlow, useWeeklyTrend, usePlatformHeatmap } from "@/lib/api/hooks";
 import { SectionHeader } from "./dashboard.index";
 import { cn } from "@/lib/utils";
 import { useState } from "react";
@@ -29,21 +29,31 @@ export const Route = createFileRoute("/dashboard/crowd")({
 function CrowdPage() {
   const [tab, setTab] = useState<"hourly" | "weekly">("hourly");
   const trainsQ = useTrains();
-  const trainsRaw = trainsQ.data ?? [];
-  const hasRealTrains = trainsRaw.some(t => t.id !== "ESP32_DEMO");
+  const hourlyQ = useHourlyFlow();
+  const weeklyQ = useWeeklyTrend();
+  const heatmapQ = usePlatformHeatmap();
+
+  const rawHourly = hourlyQ.data && hourlyQ.data.length > 0 ? hourlyQ.data : HOURLY_FLOW;
+  const rawWeekly = weeklyQ.data && weeklyQ.data.length > 0 ? weeklyQ.data : WEEKLY_TREND;
+  const heatmapData = heatmapQ.data && heatmapQ.data.length > 0 ? heatmapQ.data : PLATFORM_HEATMAP;
+
+  const hourlyData = rawHourly.map((d: any) => ({
+    ...d,
+    hour: d.hour ?? d.time ?? "",
+    inflow: d.inflow ?? d.boarding ?? 0,
+    outflow: d.outflow ?? d.alighting ?? 0,
+  }));
+  const weeklyData = rawWeekly.map((d: any) => ({
+    ...d,
+    day: d.day ?? d.label ?? "",
+    passengers: d.passengers ?? d.total ?? d.value ?? 0,
+  }));
 
   return (
     <div className="space-y-6 px-4 py-6 md:px-8 md:py-8">
-      <SectionHeader title="Station Crowd Intelligence" right={hasRealTrains ? "Live" : "Offline"} />
+      <SectionHeader title="Station Crowd Intelligence" right="Live Analytics" />
 
-      {!hasRealTrains ? (
-        <div className="flex h-[30rem] flex-col items-center justify-center rounded-xl border border-dashed border-white/10 bg-obsidian-900/50 text-center">
-          <p className="text-xl font-medium text-slate-300">No Analytics Data</p>
-          <p className="mt-2 text-sm text-slate-500">Analytics and heatmaps require active train operations to generate data.</p>
-        </div>
-      ) : (
-        <>
-          <div className="rounded-xl border border-white/5 bg-obsidian-900 p-5">
+      <div className="rounded-xl border border-white/5 bg-obsidian-900 p-5">
         <div className="flex items-center justify-between">
           <h3 className="text-sm font-bold text-white">Passenger Flow</h3>
           <div className="flex gap-1 rounded-md border border-white/10 bg-obsidian-800 p-0.5">
@@ -65,7 +75,7 @@ function CrowdPage() {
         <div className="mt-4 h-72">
           <ResponsiveContainer width="100%" height="100%">
             {tab === "hourly" ? (
-              <AreaChart data={HOURLY_FLOW} margin={{ top: 10, right: 12, bottom: 0, left: -16 }}>
+              <AreaChart data={hourlyData} margin={{ top: 10, right: 12, bottom: 0, left: -16 }}>
                 <defs>
                   <linearGradient id="g1" x1="0" y1="0" x2="0" y2="1">
                     <stop offset="0%" stopColor="#2dd4bf" stopOpacity={0.5} />
@@ -84,7 +94,7 @@ function CrowdPage() {
                 <Area type="monotone" dataKey="outflow" stroke="#3b82f6" strokeWidth={2} fill="url(#g2)" />
               </AreaChart>
             ) : (
-              <BarChart data={WEEKLY_TREND} margin={{ top: 10, right: 12, bottom: 0, left: -16 }}>
+              <BarChart data={weeklyData} margin={{ top: 10, right: 12, bottom: 0, left: -16 }}>
                 <CartesianGrid stroke="rgba(255,255,255,0.04)" vertical={false} />
                 <XAxis dataKey="day" tick={{ fill: "#64748b", fontSize: 10 }} axisLine={false} tickLine={false} />
                 <YAxis tick={{ fill: "#64748b", fontSize: 10 }} axisLine={false} tickLine={false} />
@@ -101,7 +111,7 @@ function CrowdPage() {
           <h3 className="text-sm font-bold text-white">Platform Heatmap</h3>
           <p className="mt-1 text-xs text-slate-500">Density across Platform 1 & 2 by zone (last 60 min)</p>
           <div className="mt-5 space-y-1.5">
-            {PLATFORM_HEATMAP.map((row, ri) => (
+            {heatmapData.map((row, ri) => (
               <div key={ri} className="flex items-center gap-2">
                 <div className="w-16 font-mono text-[10px] uppercase tracking-widest text-slate-500">
                   P{Math.floor(ri / 2) + 1}·{ri % 2 === 0 ? "N" : "S"}
@@ -139,10 +149,8 @@ function CrowdPage() {
             <PeakRow time="17:30–19:30" label="Evening peak" value="2,480 / hr" tone="text-danger" />
             <PeakRow time="22:00–23:00" label="Last service" value="380 / hr" tone="text-slate-400" />
           </ul>
-            </div>
-          </div>
-        </>
-      )}
+        </div>
+      </div>
     </div>
   );
 }

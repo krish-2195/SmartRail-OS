@@ -3,6 +3,7 @@ import { SectionHeader } from "./dashboard.index";
 import { Copy, Pencil, Radio, Sparkles, Loader2 } from "lucide-react";
 import { useState } from "react";
 import { useAnnouncements, useBroadcastAnnouncement } from "@/lib/api/hooks";
+import { formatFullStationName } from "@/lib/use-live-train-state";
 
 export const Route = createFileRoute("/dashboard/announcements")({
   head: () => ({
@@ -27,14 +28,28 @@ function AnnouncementsPage() {
     if (broadcastingId || broadcastM.isPending) return;
     setBroadcastingId(announcement.id);
 
-    // 1. Text-to-Speech Simulation
-    const utterance = new SpeechSynthesisUtterance(announcement.text);
-    utterance.rate = 0.9;
-    utterance.pitch = 1.1;
-    utterance.onend = () => setBroadcastingId(null);
-    window.speechSynthesis.speak(utterance);
+    // 1. Resilient Text-to-Speech Simulation
+    if (typeof window !== "undefined" && "speechSynthesis" in window) {
+      try {
+        window.speechSynthesis.cancel();
+        const utterance = new SpeechSynthesisUtterance(announcement.text);
+        utterance.rate = 0.9;
+        utterance.pitch = 1.1;
+        utterance.onend = () => setBroadcastingId(null);
+        utterance.onerror = () => setBroadcastingId(null);
+        window.speechSynthesis.speak(utterance);
+      } catch (err) {
+        console.warn("Speech synthesis error:", err);
+        setBroadcastingId(null);
+      }
+    }
 
-    // 2. Call the new hook
+    // Safety timeout in case onend never fires (e.g. mobile/headless browsers)
+    setTimeout(() => {
+      setBroadcastingId((curr) => (curr === announcement.id ? null : curr));
+    }, 7000);
+
+    // 2. Call backend broadcast mutation
     broadcastM.mutate(
       { text: announcement.text, context: announcement.context },
       {
@@ -63,6 +78,7 @@ function AnnouncementsPage() {
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         {announcements.map((a: any) => {
           const isBroadcasting = broadcastingId === a.id;
+          const contextLabel = a.context ? formatFullStationName(a.context) : "System-Wide";
           return (
             <div 
               key={a.id} 
@@ -75,7 +91,7 @@ function AnnouncementsPage() {
               <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest text-accent-cyan">
                 <Sparkles className={`size-3 ${isBroadcasting ? "animate-pulse" : ""}`} /> 
                 {isBroadcasting ? "LIVE BROADCAST" : "AI Draft"}
-                <span className="ml-auto font-mono text-slate-500">{a.context}</span>
+                <span className="ml-auto font-mono text-slate-400">{contextLabel}</span>
               </div>
               <p className="mt-3 text-sm leading-relaxed text-white">{a.text}</p>
               <div className="mt-5 flex flex-wrap items-center gap-2">

@@ -30,6 +30,8 @@ export interface BackendCoach {
   current_passenger_count: number;
   occupancy_percentage: number;
   occupancy_status: string;
+  estimated_departure_passengers?: number | null;
+  estimated_departure_occupancy_pct?: number | null;
 }
 
 export interface BackendTrainAtStation {
@@ -43,6 +45,18 @@ export interface BackendTrainAtStation {
   current_station_id?: string | null;
   next_station: string;
   next_station_id?: string | null;
+  status?: string | null;
+  eta_seconds?: number | null;
+  journey_completed_pct?: number | null;
+  current_position?: number | null;
+  origin_station_id?: string | null;
+  destination_station_id?: string | null;
+  predicted_boarding_count?: number | null;
+  predicted_deboarding_count?: number | null;
+  predicted_occupancy?: number | null;
+  predicted_occupancy_at_station?: number | null;
+  estimated_departure_passengers?: number | null;
+  estimated_departure_occupancy_pct?: number | null;
   coaches: BackendCoach[];
 }
 
@@ -56,6 +70,7 @@ export interface BackendIncomingTrain {
   predicted_occupancy_at_station: number;
   predicted_boarding_count: number;
   predicted_deboarding_count: number;
+  predicted_station_crowd?: number;
 }
 
 export interface BackendCrowdPrediction {
@@ -63,6 +78,7 @@ export interface BackendCrowdPrediction {
   predicted_5_min: number;
   predicted_15_min: number;
   predicted_30_min: number;
+  predicted_60_min?: number;
 }
 
 export interface BackendAlert {
@@ -85,6 +101,44 @@ export interface BackendDashboardSnapshot {
   alerts: BackendAlert[];
 }
 
+export interface BackendEsp32Live {
+  status: "active" | "no_data" | "idle";
+  device_id: string;
+  coach_id: string;
+  occupancy: number;
+  occupancy_pct: number;
+  total_in: number;
+  total_out: number;
+  in_rate_per_min: number;
+  out_rate_per_min: number;
+  coach_capacity: number;
+  station_id?: string | null;
+  target_station_id?: string | null;
+  last_direction?: string | null;
+  sensor_s1_distance: number;
+  sensor_s2_distance: number;
+  rssi?: number | null;
+  last_updated: string;
+  is_active: boolean;
+}
+
+export interface BackendEsp32Event {
+  id: number;
+  direction: "IN" | "OUT" | "SYNC" | "RESET";
+  in_delta: number;
+  out_delta: number;
+  occupancy: number;
+  occupancy_pct: number;
+  total_in: number;
+  total_out: number;
+  station_id?: string | null;
+  coach_id?: string | null;
+  device_id?: string | null;
+  distance_s1?: number;
+  distance_s2?: number;
+  timestamp: string;
+}
+
 // ---------- Adapters ----------
 
 function lineFromName(name: string): LineId {
@@ -101,34 +155,135 @@ export function adaptStation(s: BackendStation, index: number): Station {
 }
 
 function adaptCoach(c: BackendCoach, i: number): Coach {
+  const isLadies = c.coach_type?.toLowerCase().includes("ladies") || i === 1;
+  const defaultCap = isLadies ? 240 : 280;
+  const coachCap = c.capacity && c.capacity > 0 && c.capacity <= 400 ? c.capacity : defaultCap;
+
+  const currPax =
+    c.current_passenger_count ??
+    Math.round((coachCap * (c.occupancy_percentage || 0)) / 100);
+
+  const estPax =
+    c.estimated_departure_passengers ??
+    Math.min(coachCap, Math.round(currPax * 1.08) || 50);
+
+  const estPct =
+    c.estimated_departure_occupancy_pct ??
+    Math.min(100, Math.round((estPax / coachCap) * 100));
+
   return {
     id: `c${c.coach_number || i + 1}`,
-    label:
-      c.coach_type?.toLowerCase() === "ladies"
-        ? "Ladies Coach"
-        : `Coach ${c.coach_number || i + 1}`,
-    capacity: c.capacity,
+    label: isLadies ? "Ladies Coach" : `Coach ${c.coach_number || i + 1}`,
+    capacity: coachCap,
     occupancy: c.occupancy_percentage,
+    passengers: currPax,
+    estimatedOccupancy: estPct,
+    estimatedPassengers: estPax,
   };
 }
 
+export function formatTimeString(raw?: string | null): string {
+  if (!raw) return "--:--";
+  const s = String(raw).trim();
+  if (s.includes("T")) {
+    try {
+      const d = new Date(s);
+      if (!isNaN(d.getTime())) {
+        const h = String(d.getHours()).padStart(2, "0");
+        const m = String(d.getMinutes()).padStart(2, "0");
+        return `${h}:${m}`;
+      }
+    } catch {}
+  }
+  if (s.includes(":")) {
+    const parts = s.split(":");
+    if (parts.length >= 2) {
+      const h = parts[0].padStart(2, "0");
+      const m = parts[1].padStart(2, "0");
+      return `${h}:${m}`;
+    }
+  }
+  return s;
+}
+
 export function adaptTrain(t: BackendTrainAtStation): Train {
+  const line = lineFromName(t.line_name || t.train_id);
+  const isUp = (t.direction || "").toUpperCase().includes("UP");
+  const originId = t.origin_station_id || (line === "blue" ? (isUp ? "BL01" : "BL18") : (isUp ? "RL01" : "RL15"));
+  const destinationId = t.destination_station_id || (line === "blue" ? (isUp ? "BL18" : "BL01") : (isUp ? "RL15" : "RL01"));
+
+  let directionLabel = t.direction || "";
+  if (!directionLabel || directionLabel === "UP" || directionLabel === "Up") {
+    directionLabel = line === "blue" ? "Vastral Gam Bound" : "Motera Stadium Bound";
+  } else if (directionLabel === "DOWN" || directionLabel === "Down") {
+    directionLabel = line === "blue" ? "Thaltej Gam Bound" : "APMC Bound";
+  }
+
+  const coaches = (t.coaches && t.coaches.length > 0 ? t.coaches : [
+    { coach_number: "1", coach_type: "STANDARD", capacity: 280, current_passenger_count: 106, occupancy_percentage: 38, occupancy_status: "optimal" },
+    { coach_number: "2", coach_type: "LADIES", capacity: 240, current_passenger_count: 154, occupancy_percentage: 64, occupancy_status: "moderate" },
+    { coach_number: "3", coach_type: "STANDARD", capacity: 280, current_passenger_count: 258, occupancy_percentage: 92, occupancy_status: "critical" },
+  ]).map(adaptCoach);
+
+  const totalCapacity = coaches.reduce((sum, c) => sum + c.capacity, 0) || 800;
+  const currentTotalPax = coaches.reduce((sum, c) => sum + (c.passengers ?? 0), 0);
+  const avgOcc = Math.round((currentTotalPax / totalCapacity) * 100);
+
+  const st = (t.status || "").toUpperCase();
+  const isAtStation = st === "AT_STATION" || st === "WAITING_AT_TERMINAL" || st === "AT STATION";
+  const isInTransit = st === "IN_TRANSIT" || st === "EN_ROUTE" || st === "EN ROUTE";
+
+  let mappedStatus: "Approaching" | "At Station" | "Departing" | "En Route" = "At Station";
+  if (isAtStation) {
+    mappedStatus = "At Station";
+  } else if (isInTransit) {
+    mappedStatus = (t.eta_seconds != null && t.eta_seconds <= 60) ? "Approaching" : "En Route";
+  } else if (st === "DEPARTING") {
+    mappedStatus = "Departing";
+  }
+
+  const departureEtaSeconds = isAtStation ? (t.eta_seconds ?? 30) : null;
+  const arrivalEtaSeconds = isInTransit ? (t.eta_seconds ?? null) : null;
+  const etaSeconds = t.eta_seconds ?? (isAtStation ? 30 : 45);
+
+  const predictedBoarding = t.predicted_boarding_count ?? (currentTotalPax === 0 ? 0 : Math.max(12, Math.round(currentTotalPax * 0.12)));
+  const predictedDeboarding = t.predicted_deboarding_count ?? (currentTotalPax === 0 ? 0 : Math.max(10, Math.round(currentTotalPax * 0.08)));
+  const netFlow = predictedBoarding - predictedDeboarding;
+
+  const totalEstPax =
+    t.estimated_departure_passengers ??
+    (currentTotalPax === 0 ? 0 : Math.min(totalCapacity, currentTotalPax + netFlow));
+  const totalEstPct =
+    t.estimated_departure_occupancy_pct ??
+    (totalCapacity > 0 ? Math.min(100, Math.round((totalEstPax / totalCapacity) * 100)) : 0);
+
+  const predictedOccupancy =
+    t.predicted_occupancy_at_station ??
+    t.predicted_occupancy ??
+    totalEstPct;
+
   return {
     id: t.train_id,
-    name: `${t.train_id} · ${t.train_name}`,
-    line: lineFromName(t.line_name),
-    direction: t.direction,
-    originId: "",
-    destinationId: "",
+    name: t.train_name ? `${t.train_id} · ${t.train_name}` : t.train_id,
+    line,
+    direction: directionLabel,
+    originId,
+    destinationId,
     currentStationId: t.current_station_id || t.current_station,
     nextStationId: t.next_station_id || t.next_station,
-    arrival: t.arrival_time,
-    departure: t.departure_time,
-    etaSeconds: 0,
-    predictedBoarding: 0,
-    predictedDeboarding: 0,
-    status: "At Station",
-    coaches: t.coaches.map(adaptCoach),
+    arrival: formatTimeString(t.arrival_time),
+    departure: formatTimeString(t.departure_time),
+    etaSeconds,
+    departureEtaSeconds,
+    arrivalEtaSeconds,
+    predictedBoarding,
+    predictedDeboarding,
+    predictedOccupancy,
+    status: mappedStatus,
+    coaches,
+    journey_completed_pct: t.journey_completed_pct ?? (mappedStatus === "At Station" ? 0 : 50),
+    estimatedDeparturePassengers: totalEstPax,
+    estimatedDepartureOccupancy: totalEstPct,
   };
 }
 
@@ -153,10 +308,18 @@ const TYPE_MAP: Record<string, Alert["severity"]> = {
 };
 
 export function adaptAlert(a: BackendAlert): Alert {
-  const severity =
-    TYPE_MAP[a.alert_type?.toLowerCase()] ??
-    SEVERITY_MAP[a.severity?.toLowerCase()] ??
-    "System Warning";
+  const sevLower = (a.severity || "").toLowerCase();
+  let severity: Alert["severity"] = "System Warning";
+  if (sevLower === "critical" || sevLower === "emergency") {
+    severity = "Emergency";
+  } else if (sevLower === "high") {
+    severity = "Overcrowding";
+  } else if (a.alert_type && TYPE_MAP[a.alert_type.toLowerCase()]) {
+    severity = TYPE_MAP[a.alert_type.toLowerCase()];
+  } else if (SEVERITY_MAP[sevLower]) {
+    severity = SEVERITY_MAP[sevLower];
+  }
+
   const time = a.created_at
     ? new Date(a.created_at).toLocaleTimeString([], {
         hour: "2-digit",
@@ -172,6 +335,8 @@ export function adaptAlert(a: BackendAlert): Alert {
     time,
     resolved: (a as any).resolved ?? false,
     acknowledged: (a as any).acknowledged ?? false,
+    stationName: a.station_name,
+    trainId: a.train_id,
   };
 }
 
@@ -185,30 +350,31 @@ export function adaptRecommendations(items: string[]): Recommendation[] {
   }));
 }
 
-export function kpiFromSnapshot(snap: BackendDashboardSnapshot): typeof MOCK_KPI {
-  const trains = snap.current_trains;
+export function kpiFromSnapshot(snap?: BackendDashboardSnapshot | null): typeof MOCK_KPI {
+  if (!snap) return MOCK_KPI;
+  const trains = snap.current_trains ?? [];
+  const incoming = snap.incoming_trains ?? [];
+  const crowd = snap.crowd_prediction?.current_station_crowd ?? 0;
+  const pred30 = snap.crowd_prediction?.predicted_30_min ?? 0;
+  const alertsCount = snap.alerts?.length ?? 0;
+
+  const allCoaches = trains.flatMap((t) => t.coaches ?? []);
   const avg =
-    trains.length > 0
+    allCoaches.length > 0
       ? Math.round(
-          trains
-            .flatMap((t) => t.coaches.map((c) => c.occupancy_percentage))
-            .reduce((a, b) => a + b, 0) /
-            Math.max(
-              1,
-              trains.flatMap((t) => t.coaches).length,
-            ),
+          allCoaches
+            .map((c) => c.occupancy_percentage ?? 0)
+            .reduce((a, b) => a + b, 0) / allCoaches.length,
         )
-      : snap.crowd_prediction.current_station_crowd;
-  const activeAlerts = snap.alerts.length;
+      : crowd;
+
   return {
-    currentTrains: trains.length + snap.incoming_trains.length,
-    passengersInStation: snap.crowd_prediction.current_station_crowd * 20,
-    passengersInTransit: trains
-      .flatMap((t) => t.coaches)
-      .reduce((a, c) => a + c.current_passenger_count, 0),
+    currentTrains: trains.length + incoming.length,
+    passengersInStation: crowd * 20,
+    passengersInTransit: allCoaches.reduce((a, c) => a + (c.current_passenger_count ?? 0), 0),
     avgOccupancy: avg,
-    activeAlerts,
-    predictedNextHour: snap.crowd_prediction.predicted_30_min * 25,
+    activeAlerts: alertsCount,
+    predictedNextHour: pred30 * 25,
   };
 }
 

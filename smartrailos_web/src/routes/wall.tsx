@@ -1,6 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useClock, formatTime, formatDate } from "@/lib/use-live-tick";
 import { useLiveTrains } from "@/lib/use-live-trains";
+import { useAlerts, useKpi } from "@/lib/api/hooks";
 import {
   KPI,
   ALERTS,
@@ -35,16 +36,22 @@ function fmtEta(s: number) {
 function WallBoard() {
   const now = useClock();
   const trains = useLiveTrains();
-  const activeAlerts = ALERTS.filter((a) => !a.resolved);
+  const alertsQ = useAlerts();
+  const kpiQ = useKpi();
+
+  const activeAlerts = (alertsQ.data && alertsQ.data.length > 0 ? alertsQ.data : ALERTS).filter(
+    (a: any) => !a.resolved
+  );
+  const kpi = (kpiQ.data as any) ?? KPI;
   const sorted = [...trains].sort((a, b) => a.etaSeconds - b.etaSeconds);
 
   const stats = [
-    { label: "Trains Active", value: KPI.currentTrains, icon: TrainFront, tone: "text-accent-cyan" },
-    { label: "In Station", value: KPI.passengersInStation, icon: Users, tone: "text-white" },
-    { label: "In Transit", value: KPI.passengersInTransit, icon: Activity, tone: "text-white" },
-    { label: "Avg Occupancy", value: `${KPI.avgOccupancy}%`, icon: Activity, tone: "text-warning" },
+    { label: "Trains Active", value: kpi.currentTrains ?? trains.length, icon: TrainFront, tone: "text-accent-cyan" },
+    { label: "In Station", value: (kpi.passengersInStation ?? 0).toLocaleString(), icon: Users, tone: "text-white" },
+    { label: "In Transit", value: (kpi.passengersInTransit ?? 0).toLocaleString(), icon: Activity, tone: "text-white" },
+    { label: "Avg Occupancy", value: `${Math.round(kpi.avgOccupancy ?? 0)}%`, icon: Activity, tone: "text-warning" },
     { label: "Active Alerts", value: activeAlerts.length, icon: Bell, tone: "text-danger" },
-    { label: "Next-Hour Pred.", value: KPI.predictedNextHour, icon: Activity, tone: "text-accent-cyan" },
+    { label: "Next-Hour Pred.", value: (kpi.predictedNextHour ?? 0).toLocaleString(), icon: Activity, tone: "text-accent-cyan" },
   ];
 
   return (
@@ -160,7 +167,7 @@ function WallBoard() {
             </span>
           </div>
           <ul className="divide-y divide-white/5">
-            {activeAlerts.map((a) => (
+            {activeAlerts.map((a: any) => (
               <li key={a.id} className="flex gap-3 px-5 py-3">
                 <AlertOctagon className="mt-0.5 size-4 shrink-0 text-danger" />
                 <div className="min-w-0 flex-1">
@@ -168,15 +175,17 @@ function WallBoard() {
                     <span
                       className={cn(
                         "rounded border px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-widest",
-                        ALERT_SEVERITY_TW[a.severity],
+                        ALERT_SEVERITY_TW[a.severity as keyof typeof ALERT_SEVERITY_TW] ?? "border-amber-500/30 text-amber-400",
                       )}
                     >
                       {a.severity}
                     </span>
-                    <span className="font-mono text-[10px] text-slate-500">{a.time}</span>
+                    <span className="font-mono text-[10px] text-slate-500">
+                      {a.time ?? (a.created_at ? new Date(a.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "Live")}
+                    </span>
                   </div>
                   <div className="mt-1 truncate text-sm font-semibold text-white">{a.title}</div>
-                  <div className="text-xs text-slate-400">{a.description}</div>
+                  <div className="text-xs text-slate-400">{a.description ?? a.message}</div>
                 </div>
               </li>
             ))}

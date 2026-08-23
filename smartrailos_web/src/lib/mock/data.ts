@@ -9,40 +9,46 @@ export interface Station {
 }
 
 export const BLUE_LINE: Station[] = [
-  { id: "bl-1", name: "Thaltej Gam", line: "blue", order: 1 },
-  { id: "bl-2", name: "Thaltej", line: "blue", order: 2 },
-  { id: "bl-3", name: "Doordarshan Kendra", line: "blue", order: 3 },
-  { id: "bl-4", name: "Gurukul Road", line: "blue", order: 4 },
-  { id: "bl-5", name: "Gujarat University", line: "blue", order: 5 },
-  { id: "bl-6", name: "Commerce Six Roads", line: "blue", order: 6 },
-  { id: "bl-7", name: "SP Stadium", line: "blue", order: 7 },
-  { id: "bl-8", name: "Old High Court", line: "blue", order: 8 },
-  { id: "bl-9", name: "Shahpur", line: "blue", order: 9 },
-  { id: "bl-10", name: "Ghee Kanta", line: "blue", order: 10 },
-  { id: "bl-11", name: "Kalupur", line: "blue", order: 11 },
-  { id: "bl-12", name: "Kankaria East", line: "blue", order: 12 },
-  { id: "bl-13", name: "Apparel Park", line: "blue", order: 13 },
-  { id: "bl-14", name: "Vastral Gam", line: "blue", order: 14 },
+  { id: "BL01", name: "Vastral Gam", line: "blue", order: 1 },
+  { id: "BL02", name: "Nirant Cross Road", line: "blue", order: 2 },
+  { id: "BL03", name: "Vastral", line: "blue", order: 3 },
+  { id: "BL04", name: "Rabari Colony", line: "blue", order: 4 },
+  { id: "BL05", name: "Amraivadi", line: "blue", order: 5 },
+  { id: "BL06", name: "Apparel Park", line: "blue", order: 6 },
+  { id: "BL07", name: "Kankaria East", line: "blue", order: 7 },
+  { id: "BL08", name: "Kalupur Metro Station", line: "blue", order: 8 },
+  { id: "BL09", name: "Ghee Kanta", line: "blue", order: 9 },
+  { id: "BL10", name: "Shahpur", line: "blue", order: 10 },
+  { id: "BL11", name: "Old High Court", line: "blue", order: 11 },
+  { id: "BL12", name: "S P Stadium", line: "blue", order: 12 },
+  { id: "BL13", name: "Commerce Six Road", line: "blue", order: 13 },
+  { id: "BL14", name: "Gujarat University", line: "blue", order: 14 },
+  { id: "BL15", name: "Gurukul Road", line: "blue", order: 15 },
+  { id: "BL16", name: "Doordarshan Kendra", line: "blue", order: 16 },
+  { id: "BL17", name: "Thaltej", line: "blue", order: 17 },
+  { id: "BL18", name: "Thaltej Gam", line: "blue", order: 18 },
 ];
 
 export const RED_LINE: Station[] = [
-  { id: "rl-1", name: "APMC", line: "red", order: 1 },
-  { id: "rl-2", name: "Jivraj", line: "red", order: 2 },
-  { id: "rl-3", name: "Rajivnagar", line: "red", order: 3 },
-  { id: "rl-4", name: "Shreyas", line: "red", order: 4 },
-  { id: "rl-5", name: "Paldi", line: "red", order: 5 },
-  { id: "rl-6", name: "Gandhigram", line: "red", order: 6 },
-  { id: "rl-7", name: "Old High Court", line: "red", order: 7 },
-  { id: "rl-8", name: "Usmanpura", line: "red", order: 8 },
-  { id: "rl-9", name: "Vijaynagar", line: "red", order: 9 },
-  { id: "rl-10", name: "Vadaj", line: "red", order: 10 },
-  { id: "rl-11", name: "Ranip", line: "red", order: 11 },
-  { id: "rl-12", name: "Sabarmati", line: "red", order: 12 },
-  { id: "rl-13", name: "Motera Stadium", line: "red", order: 13 },
+  { id: "RL01", name: "APMC", line: "red", order: 1 },
+  { id: "RL02", name: "Jivraj Park", line: "red", order: 2 },
+  { id: "RL03", name: "Rajivnagar", line: "red", order: 3 },
+  { id: "RL04", name: "Shreyas", line: "red", order: 4 },
+  { id: "RL05", name: "Paldi", line: "red", order: 5 },
+  { id: "RL06", name: "Gandhigram", line: "red", order: 6 },
+  { id: "RL07", name: "Old High Court", line: "red", order: 7 },
+  { id: "RL08", name: "Usmanpura", line: "red", order: 8 },
+  { id: "RL09", name: "Vijay Nagar", line: "red", order: 9 },
+  { id: "RL10", name: "Vadaj", line: "red", order: 10 },
+  { id: "RL11", name: "Ranip", line: "red", order: 11 },
+  { id: "RL12", name: "Sabarmati Rly Station", line: "red", order: 12 },
+  { id: "RL13", name: "AEC", line: "red", order: 13 },
+  { id: "RL14", name: "Sabarmati", line: "red", order: 14 },
+  { id: "RL15", name: "Motera Stadium", line: "red", order: 13 },
 ];
 
 export const STATIONS = [...BLUE_LINE, ...RED_LINE];
-export const CURRENT_STATION = "Old High Court Interchange";
+export const CURRENT_STATION = "COMMAND CENTER";
 
 export type CoachStatus = "low" | "moderate" | "high" | "critical";
 export interface Coach {
@@ -50,6 +56,9 @@ export interface Coach {
   label: string;
   capacity: number;
   occupancy: number; // 0-100
+  passengers?: number;
+  estimatedOccupancy?: number;
+  estimatedPassengers?: number;
 }
 
 export function statusFromOccupancy(pct: number): CoachStatus {
@@ -87,11 +96,18 @@ export interface Train {
   arrival: string;
   departure: string;
   etaSeconds: number;
+  /** Seconds until this train departs the current station (only set when status = AT_STATION) */
+  departureEtaSeconds?: number | null;
+  /** Seconds until this train arrives at the next station (only set when status = IN_TRANSIT) */
+  arrivalEtaSeconds?: number | null;
   predictedBoarding: number;
   predictedDeboarding: number;
+  predictedOccupancy?: number;
   coaches: Coach[];
   status: "Approaching" | "At Station" | "Departing" | "En Route";
   journey_completed_pct?: number;
+  estimatedDeparturePassengers?: number;
+  estimatedDepartureOccupancy?: number;
 }
 
 export const TRAINS: Train[] = [
@@ -259,6 +275,8 @@ export interface Alert {
   time: string;
   resolved: boolean;
   acknowledged?: boolean;
+  stationName?: string | null;
+  trainId?: string | null;
 }
 
 export const ALERTS: Alert[] = [
@@ -463,6 +481,45 @@ export const KPI = {
   predictedNextHour: 2010,
 };
 
-export function findStation(id: string): Station | undefined {
-  return STATIONS.find((s) => s.id === id);
+export function findStation(idOrName?: string | null): Station | undefined {
+  if (!idOrName) return undefined;
+  const raw = idOrName.trim();
+  const lower = raw.toLowerCase();
+
+  // 1. Direct ID match (case-insensitive)
+  const byId = STATIONS.find((s) => s.id.toLowerCase() === lower);
+  if (byId) return byId;
+
+  // 2. Exact name match (case-insensitive)
+  const byName = STATIONS.find((s) => s.name.toLowerCase() === lower);
+  if (byName) return byName;
+
+  // 2b. Clean name match (strip line suffixes e.g. "Old High Court (RL)" -> "Old High Court")
+  const cleanName = lower.replace(/\s*\((rl|bl|red|blue)\)/g, "").replace(/\s*interchange/g, "").trim();
+  const byCleanName = STATIONS.find((s) => s.name.toLowerCase() === cleanName);
+  if (byCleanName) return byCleanName;
+
+  // 3. Normalized ID match (e.g. "bl08", "bl-8", "bl-08", "bl8", "rl-7", "rl07")
+  const match = lower.match(/^([a-z]{2})[-_]?0*(\d+)$/);
+  if (match) {
+    const prefix = match[1].toUpperCase();
+    const num = parseInt(match[2], 10);
+    const padded = `${prefix}${String(num).padStart(2, "0")}`;
+    const byNormalized = STATIONS.find(
+      (s) =>
+        s.id.toUpperCase() === padded ||
+        s.id.toUpperCase() === `${prefix}${num}` ||
+        s.id.toLowerCase() === `${prefix.toLowerCase()}-${num}`,
+    );
+    if (byNormalized) return byNormalized;
+  }
+
+  // 4. Fuzzy / partial name match
+  const byPartialName = STATIONS.find((s) => {
+    const sLower = s.name.toLowerCase();
+    return sLower.includes(lower) || lower.includes(sLower);
+  });
+  if (byPartialName) return byPartialName;
+
+  return undefined;
 }
